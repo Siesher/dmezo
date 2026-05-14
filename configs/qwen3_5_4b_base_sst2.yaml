@@ -1,0 +1,48 @@
+# Qwen3.5-4B-Base — hybrid linear-attention / full-attention V-L model.
+#
+# Architecture (from config.json on HF): Qwen3_5ForConditionalGeneration.
+#   - text decoder: 32 layers, layer_types = [linear, linear, linear, full] × 8
+#     (24 linear-attention layers + 8 full-attention layers, ratio 3:1)
+#   - vision tower: 24-layer ViT (frozen by loader, MeZO ignores it)
+#   - Plus mamba_ssm_dtype="float32" hint of mamba-style ops
+#
+# This is the **novel-architecture sanity** for MeZO. Princeton 2023 validated
+# only on full-attention transformers (OPT/RoBERTa). Day 1 (2026-05-14)
+# confirmed MeZO works on Qwen3-4B (also full attention). Open question:
+# does MeZO converge on hybrid linear-attention models?
+#
+# Settings mirror configs/qwen3_4b_sst2.yaml for a fair comparison vs Day 1.
+# Same lr (3e-7) and steps; if 3e-7 diverges here, that itself is a finding.
+#
+# Expected wall-clock on Blackwell: ~5-15 min (slightly larger than 4B due to
+# vision encoder weights staying loaded; vision params frozen so no MeZO
+# overhead, just VRAM cost).
+# Compute units estimate: ~3-8.
+
+experiment_name: dmezo_sanity
+seed: 42
+output_dir: experiments/01_sanity_qwen3_5_4b_base_sst2
+
+model:
+  name: Qwen/Qwen3.5-4B-Base
+  dtype: bfloat16
+  flash_attention: false  # FA2 doesn't yet support linear-attention layers reliably; eager is safe
+
+data:
+  batch_size: 8
+  max_length: 256
+  num_train_examples: 1000
+  num_eval_examples: 200
+
+mezo:
+  # Same lr as Day 1 Qwen3-4B (3e-7). If this diverges on hybrid arch — that's
+  # the empirical finding we care about; rerun ablation if needed.
+  lr: 3.0e-7
+  eps: 1.0e-3
+  weight_decay: 0.0
+
+train:
+  steps: 1000
+  eval_every: 100
+  log_every: 20
+  eval_batches: 20

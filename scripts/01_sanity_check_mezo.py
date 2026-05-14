@@ -140,9 +140,19 @@ def main() -> None:
             device_map="auto",
             use_flash_attention=cfg["model"].get("flash_attention", True),
         )
-        # Make sure params have requires_grad (HF disables it sometimes).
-        for p in model.parameters():
-            p.requires_grad_(True)
+        # Make sure params have requires_grad. Exception: if loader pre-froze
+        # some params (e.g. V-L vision branch), respect that — MeZO will only
+        # perturb the rest.
+        n_total = sum(1 for _ in model.parameters())
+        n_pre_frozen = sum(1 for p in model.parameters() if not p.requires_grad)
+        if n_pre_frozen == 0:
+            for p in model.parameters():
+                p.requires_grad_(True)
+        else:
+            logger.info(
+                f"Model has {n_pre_frozen}/{n_total} params pre-frozen by loader; "
+                f"MeZO will perturb the remaining {n_total - n_pre_frozen}."
+            )
 
         # ---- Data
         bs = cfg["data"].get("batch_size", 8)

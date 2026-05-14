@@ -38,7 +38,7 @@
 Альтернативы и upgrade path:
 
 - Qwen3-8B (`Qwen/Qwen3-8B`) — стандартный трансформер, ~16 GB FP16. Upgrade для финальных экспериментов.
-- Qwen3.5-4B (`Qwen/Qwen3.5-4B`) — **гибрид GDN+attention**. ВНИМАНИЕ: MeZO на гибридной архитектуре не проверен. Использовать только как novel-architecture эксперимент с явным sanity check (`scripts/06_qwen35_gdn_experiment.py`).
+- Qwen3.5-4B-Base / Qwen3.5-4B (`Qwen/Qwen3.5-4B*`) — **hybrid linear-attention + full-attention vision-language модель** (подтверждено по config.json: layer_types = [linear, linear, linear, full] × 8 в text decoder, плюс 24-слойный ViT). Архитектура `Qwen3_5ForConditionalGeneration`, загружается через `AutoModelForImageTextToText`. Loader (`src/dmezo/models/loader.py::_load_vl_for_text_task`) автоматически замораживает vision tower; MeZO perturbает только text decoder. Config: `configs/qwen3_5_4b_base_sst2.yaml`. Это первый known test MeZO на linear-attention арх — Princeton paper только full-attention.
 
 **Целевая платформа compute: Google Colab Pro+ с RTX PRO 6000 Blackwell (96 GB)**. Бюджет 600 compute units на месяц. Ноутбук `notebooks/bootstrap_colab.ipynb` готов к запуску в Colab.
 
