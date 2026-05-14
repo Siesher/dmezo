@@ -22,14 +22,17 @@ data:
   num_eval_examples: 200
 
 mezo:
-  # Princeton defaults for full-parameter MeZO. For larger models or LoRA-only
-  # you may need lr=1e-7 to lr=1e-5 — tune on a 100-step pilot first.
-  lr: 1.0e-6
+  # Picked from local LR ablation on Qwen3-0.6B (2026-05-14): lr=1e-6 diverged
+  # after ~step 400 (eval bounced back from 0.29 to 0.46-1.35 depending on
+  # cuDNN nondeterminism); lr=3e-7 gave smooth monotonic convergence to ~0.32
+  # eval loss. For Qwen3-4B we expect slightly smaller-still lr, but 3e-7 is
+  # a safe middle ground (Princeton uses 1e-6 for OPT-1.3B, 1e-7 for OPT-13B).
+  lr: 3.0e-7
   eps: 1.0e-3
   weight_decay: 0.0
 
 train:
   steps: 1000
-  eval_every: 200
+  eval_every: 100
   log_every: 20
   eval_batches: 20

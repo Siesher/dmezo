@@ -1,0 +1,32 @@
+# LR ablation on Qwen3-0.6B / SST-2 — Run 1/3 (lr=1e-7).
+#
+# Goal: find stable lr for 1000-step MeZO training before Colab Qwen3-4B.
+# Background: lr=1e-6 at 1000 steps diverged after step 400 (eval 0.36 -> 1.35).
+#
+# Princeton MeZO recommends lr=1e-7 for full-parameter on OPT-1.3B. Test.
+
+experiment_name: dmezo_ablation_lr
+seed: 42
+output_dir: experiments/ablation_lr_qwen3_06b/lr_1e-7
+
+model:
+  name: Qwen/Qwen3-0.6B
+  dtype: float16
+  flash_attention: false
+
+data:
+  batch_size: 8
+  max_length: 256
+  num_train_examples: 1000
+  num_eval_examples: 200
+
+mezo:
+  lr: 1.0e-7
+  eps: 1.0e-3
+  weight_decay: 0.0
+
+train:
+  steps: 1000
+  eval_every: 100
+  log_every: 20
+  eval_batches: 20

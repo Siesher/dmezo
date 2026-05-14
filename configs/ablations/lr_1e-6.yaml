@@ -1,0 +1,29 @@
+# LR ablation on Qwen3-0.6B / SST-2 — Run 3/3 (lr=1e-6, baseline that diverged).
+#
+# Re-run with eval_every=100 (was 200) so the divergence point is well-resolved.
+
+experiment_name: dmezo_ablation_lr
+seed: 42
+output_dir: experiments/ablation_lr_qwen3_06b/lr_1e-6
+
+model:
+  name: Qwen/Qwen3-0.6B
+  dtype: float16
+  flash_attention: false
+
+data:
+  batch_size: 8
+  max_length: 256
+  num_train_examples: 1000
+  num_eval_examples: 200
+
+mezo:
+  lr: 1.0e-6
+  eps: 1.0e-3
+  weight_decay: 0.0
+
+train:
+  steps: 1000
+  eval_every: 100
+  log_every: 20
+  eval_batches: 20

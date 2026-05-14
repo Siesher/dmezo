@@ -1,0 +1,33 @@
+# Local scale-up test — Run B.
+#
+# Same arch family as Qwen3-4B (paper model), but 1.7B params to fit
+# in 8 GB VRAM on RTX 2080. Smaller batch + shorter seq to leave VRAM
+# headroom (Qwen3-1.7B fp16 ~ 3.4 GB weights, plus activations).
+#
+# Expected wall-clock on RTX 2080: ~20-30 minutes.
+# VRAM peak: ~4-5 GB.
+
+seed: 42
+output_dir: experiments/local_1k_qwen3_17b_sst2
+
+model:
+  name: Qwen/Qwen3-1.7B
+  dtype: float16
+  flash_attention: false
+
+data:
+  batch_size: 4
+  max_length: 128
+  num_train_examples: 1000
+  num_eval_examples: 200
+
+mezo:
+  lr: 1.0e-6
+  eps: 1.0e-3
+  weight_decay: 0.0
+
+train:
+  steps: 1000
+  eval_every: 200
+  log_every: 20
+  eval_batches: 20
