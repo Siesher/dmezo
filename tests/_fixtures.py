@@ -62,12 +62,22 @@ class TinyCausalLM(nn.Module):
 
 
 def make_tiny_causal_lm(seed: int = 0, vocab_size: int = 32, hidden: int = 16) -> TinyCausalLM:
-    """Deterministically initialise a TinyCausalLM with a given seed."""
-    torch.manual_seed(seed)
-    return TinyCausalLM(vocab_size=vocab_size, hidden=hidden)
+    """Deterministically initialise a TinyCausalLM with a given seed.
+
+    Saves and restores the global torch RNG state so calls do not pollute
+    downstream tests that rely on the global PyTorch RNG.
+    """
+    rng_state = torch.get_rng_state()
+    try:
+        torch.manual_seed(seed)
+        return TinyCausalLM(vocab_size=vocab_size, hidden=hidden)
+    finally:
+        torch.set_rng_state(rng_state)
 
 
 class _SyntheticDataset(Dataset):
+    """Synthetic token-id dataset for CPU-only fixtures, deterministic per seed."""
+
     def __init__(self, num_examples: int, seq_len: int, vocab_size: int, seed: int) -> None:
         g = torch.Generator().manual_seed(seed)
         self.input_ids = torch.randint(0, vocab_size, (num_examples, seq_len), generator=g)
@@ -77,7 +87,7 @@ class _SyntheticDataset(Dataset):
     def __len__(self) -> int:
         return self.input_ids.size(0)
 
-    def __getitem__(self, idx: int) -> dict:
+    def __getitem__(self, idx: int) -> dict[str, torch.Tensor]:
         return {
             "input_ids": self.input_ids[idx],
             "attention_mask": self.attention_mask[idx],
@@ -113,8 +123,11 @@ def make_tiny_clients(
     Args:
         n: Number of clients.
         mezo_lr / mezo_eps / weight_decay: MeZO config passed to each client.
+            ``mezo_lr=1e-3`` default is intentionally 1000x larger than
+            production (1e-6) for fast convergence in CPU tests.
         seed_offset: Added to the per-client seed for model init.
-        same_init: If True, all clients use seed 0 (parameters identical at start).
+        same_init: If True, all clients use the same seed (== seed_offset) so
+            their initial parameters are identical.
 
     Returns:
         List of ClientState, one per client.
