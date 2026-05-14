@@ -86,3 +86,31 @@ def test_via_updates_deterministic_under_replay():
         for (na, pa), (nb, pb) in zip(ca.model.named_parameters(), cb.model.named_parameters()):
             assert na == nb
             assert torch.allclose(pa.data, pb.data, atol=1e-9), f"Replay diverged on {na!r}"
+
+
+def test_via_updates_matches_legacy_implementation_on_tiny_model():
+    """Bridge test: refactored consensus_via_updates must reproduce legacy results.
+
+    This test is TEMPORARY — delete after the refactor (see docs/08 Task 6).
+    """
+    from tests._legacy_consensus import consensus_via_updates_legacy
+
+    n = 3
+    seeds = [11, 22, 33]
+    rhos = [0.4, -0.2, 0.15]
+    W = ring_graph(n).W
+
+    clients_legacy = make_tiny_clients(n=n, mezo_lr=1e-3, weight_decay=1e-4)
+    clients_new = make_tiny_clients(n=n, mezo_lr=1e-3, weight_decay=1e-4)
+    cfg = clients_legacy[0].mezo_config
+
+    consensus_via_updates_legacy(clients_legacy, W, seeds, rhos, cfg)
+    consensus_via_updates(clients_new, W, seeds, rhos, cfg)
+
+    for i, (cl, cn) in enumerate(zip(clients_legacy, clients_new)):
+        for (nl, pl), (nn_, pn) in zip(cl.model.named_parameters(), cn.model.named_parameters()):
+            assert nl == nn_
+            assert torch.allclose(pl.data, pn.data, atol=1e-6), (
+                f"Client {i} param {nl!r}: legacy={pl.data.flatten()[:3]} "
+                f"vs new={pn.data.flatten()[:3]}"
+            )
