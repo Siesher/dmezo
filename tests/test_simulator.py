@@ -171,3 +171,39 @@ def test_weight_avg_mode_unaffected():
         assert torch.allclose(p0.data, p1.data, atol=1e-6), (
             f"weight_avg broken: clients differ on param {n0!r} after complete-graph consensus"
         )
+
+
+def test_full_round_runs_on_tiny_model():
+    """End-to-end smoke: 2 clients, ring(2), 5 rounds of update_share runs cleanly."""
+    from dmezo.federated.topology import ring_graph
+
+    n = 2
+    clients = make_tiny_clients(n=n, mezo_lr=1e-3, same_init=True)
+
+    initial_params = [
+        {name: p.data.clone() for name, p in c.model.named_parameters()} for c in clients
+    ]
+
+    cfg = SimulatorConfig(num_rounds=5, consensus_mode="update_share", eval_every=0, log_every=0)
+    logs = run_simulation(
+        clients=clients,
+        topology=ring_graph(n),
+        loss_fn=_causal_lm_loss,
+        config=cfg,
+    )
+
+    assert len(logs) == 5
+    for entry in logs:
+        assert "mean_local_loss" in entry
+        assert "mean_projected_grad" in entry
+        assert np.isfinite(entry["mean_local_loss"])
+        assert np.isfinite(entry["mean_projected_grad"])
+
+    # At least one parameter changed for each client (params were not frozen).
+    for i, c in enumerate(clients):
+        changed = False
+        for name, p in c.model.named_parameters():
+            if not torch.allclose(p.data, initial_params[i][name]):
+                changed = True
+                break
+        assert changed, f"Client {i} params unchanged after 5 rounds"
