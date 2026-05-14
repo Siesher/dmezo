@@ -28,7 +28,7 @@ import torch
 # Allow running as a script from project root.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from dmezo.data.superglue import causal_lm_loss  # noqa: E402
+from dmezo.data.superglue import build_loader_for_task, causal_lm_loss  # noqa: E402
 from dmezo.mezo.step import MeZOConfig, mezo_step, mezo_update  # noqa: E402
 from dmezo.models.loader import load_causal_lm  # noqa: E402
 from dmezo.utils.config import load_yaml_config  # noqa: E402
