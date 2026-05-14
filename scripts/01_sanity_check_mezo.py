@@ -15,6 +15,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 import sys
 import time
@@ -92,6 +93,18 @@ def main() -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     jsonl = JSONLLogger(output_dir / "log.jsonl")
 
+    # Also persist console output to a file so it can be uploaded to MLflow
+    # at the end of the run (useful on Colab where stdout is ephemeral).
+    console_log_path = output_dir / "console.log"
+    file_handler = logging.FileHandler(console_log_path, encoding="utf-8")
+    file_handler.setFormatter(
+        logging.Formatter(
+            "[%(asctime)s] %(levelname)s %(name)s :: %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
+    )
+    logger.addHandler(file_handler)
+
     logger.info(f"Config: {cfg}")
     logger.info(f"Output dir: {output_dir}")
 
@@ -108,11 +121,13 @@ def main() -> None:
     with mlflow.start_run(run_name=run_name) as mlrun:
         logger.info(f"MLflow run: {mlrun.info.run_id} (uri={tracking_uri})")
         mlflow.log_params(_flatten_params(cfg))
-        mlflow.set_tags({
-            "algo": "mezo_centralized",
-            "model_family": cfg["model"]["name"].split("/")[0],
-            "script": "01_sanity_check_mezo",
-        })
+        mlflow.set_tags(
+            {
+                "algo": "mezo_centralized",
+                "model_family": cfg["model"]["name"].split("/")[0],
+                "script": "01_sanity_check_mezo",
+            }
+        )
         mlflow.log_artifact(args.config, artifact_path="config")
 
         # ---- Model
@@ -137,12 +152,20 @@ def main() -> None:
 
         logger.info("Building dataloaders...")
         train_loader = build_sst2_loader(
-            tokenizer, split="train", batch_size=bs, max_length=max_len,
-            shuffle=True, num_examples=n_train,
+            tokenizer,
+            split="train",
+            batch_size=bs,
+            max_length=max_len,
+            shuffle=True,
+            num_examples=n_train,
         )
         eval_loader = build_sst2_loader(
-            tokenizer, split="validation", batch_size=bs, max_length=max_len,
-            shuffle=False, num_examples=n_eval,
+            tokenizer,
+            split="validation",
+            batch_size=bs,
+            max_length=max_len,
+            shuffle=False,
+            num_examples=n_eval,
         )
 
         # ---- MeZO config
@@ -156,7 +179,9 @@ def main() -> None:
         log_every = int(cfg["train"].get("log_every", 20))
 
         # ---- Initial eval
-        init_eval = evaluate_loss(model, eval_loader, max_batches=cfg["train"].get("eval_batches", 20))
+        init_eval = evaluate_loss(
+            model, eval_loader, max_batches=cfg["train"].get("eval_batches", 20)
+        )
         logger.info(f"Initial eval loss: {init_eval:.4f}")
         jsonl.log({"step": 0, "eval_loss": init_eval, "phase": "init"})
         mlflow.log_metric("eval_loss", init_eval, step=0)
@@ -184,50 +209,74 @@ def main() -> None:
                     f"step={step}/{n_steps} loss={avg_loss:.4f} "
                     f"rho={rho:+.4f} elapsed={elapsed:.1f}s"
                 )
-                jsonl.log({
-                    "step": step, "train_loss": avg_loss, "projected_grad": rho,
-                    "elapsed_sec": elapsed,
-                })
+                jsonl.log(
+                    {
+                        "step": step,
+                        "train_loss": avg_loss,
+                        "projected_grad": rho,
+                        "elapsed_sec": elapsed,
+                    }
+                )
                 mlflow.log_metrics(
                     {"train_loss": avg_loss, "projected_grad": float(rho), "elapsed_sec": elapsed},
                     step=step,
                 )
 
             if step % eval_every == 0:
-                ev = evaluate_loss(model, eval_loader, max_batches=cfg["train"].get("eval_batches", 20))
+                ev = evaluate_loss(
+                    model, eval_loader, max_batches=cfg["train"].get("eval_batches", 20)
+                )
                 logger.info(f"  eval_loss={ev:.4f}")
                 jsonl.log({"step": step, "eval_loss": ev, "phase": "eval"})
                 mlflow.log_metric("eval_loss", ev, step=step)
 
         # ---- Final eval
-        final_eval = evaluate_loss(model, eval_loader, max_batches=cfg["train"].get("eval_batches", 20))
+        final_eval = evaluate_loss(
+            model, eval_loader, max_batches=cfg["train"].get("eval_batches", 20)
+        )
         final_train = float(np.mean(losses[-50:])) if losses else float("nan")
         logger.info(f"FINAL: train_loss={final_train:.4f} eval_loss={final_eval:.4f}")
-        jsonl.log({"step": n_steps, "final_train_loss": final_train,
-                   "final_eval_loss": final_eval, "init_eval_loss": init_eval,
-                   "phase": "final"})
+        jsonl.log(
+            {
+                "step": n_steps,
+                "final_train_loss": final_train,
+                "final_eval_loss": final_eval,
+                "init_eval_loss": init_eval,
+                "phase": "final",
+            }
+        )
 
         # ---- Sanity verdict
         drop = (init_eval - final_eval) / max(init_eval, 1e-8)
         verdict = "PASS" if drop > 0.10 else "FAIL"
         if verdict == "PASS":
-            logger.info(f"[PASS] Eval loss dropped by {drop * 100:.1f}% — MeZO works on {model_name}.")
+            logger.info(
+                f"[PASS] Eval loss dropped by {drop * 100:.1f}% — MeZO works on {model_name}."
+            )
         else:
             logger.warning(
                 f"[FAIL?] Eval loss dropped only {drop * 100:.1f}%. "
                 f"Investigate: lr, eps, num_steps, or architecture compatibility."
             )
 
-        mlflow.log_metrics({
-            "final_train_loss": final_train,
-            "final_eval_loss": final_eval,
-            "init_eval_loss": init_eval,
-            "eval_loss_drop_pct": drop * 100.0,
-        }, step=n_steps)
+        mlflow.log_metrics(
+            {
+                "final_train_loss": final_train,
+                "final_eval_loss": final_eval,
+                "init_eval_loss": init_eval,
+                "eval_loss_drop_pct": drop * 100.0,
+            },
+            step=n_steps,
+        )
         mlflow.set_tag("sanity_verdict", verdict)
 
         jsonl.close()
+        # Flush + detach FileHandler before uploading.
+        file_handler.flush()
+        logger.removeHandler(file_handler)
+        file_handler.close()
         mlflow.log_artifact(str(output_dir / "log.jsonl"), artifact_path="logs")
+        mlflow.log_artifact(str(console_log_path), artifact_path="logs")
 
 
 if __name__ == "__main__":

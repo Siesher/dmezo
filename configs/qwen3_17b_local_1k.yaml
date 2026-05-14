@@ -22,12 +22,13 @@ data:
   num_eval_examples: 200
 
 mezo:
-  lr: 1.0e-6
+  # lr picked from Qwen3-0.6B ablation; same family so should transfer.
+  lr: 3.0e-7
   eps: 1.0e-3
   weight_decay: 0.0
 
 train:
   steps: 1000
-  eval_every: 200
+  eval_every: 100
   log_every: 20
   eval_batches: 20
