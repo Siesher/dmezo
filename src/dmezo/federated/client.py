@@ -11,8 +11,8 @@ Python process, sharing one GPU. A real federated deployment would replace
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Callable, List, Optional, Tuple
 
 import numpy as np
 import torch
@@ -43,9 +43,9 @@ class ClientState:
     dataloader: DataLoader
     mezo_config: MeZOConfig
     local_steps: int = 1
-    nesterov_state: Optional[NesterovState] = None
+    nesterov_state: NesterovState | None = None
     rng: np.random.Generator = field(default_factory=lambda: np.random.default_rng())
-    _data_iter: Optional[object] = None
+    _data_iter: object | None = None
 
     def _next_batch(self) -> dict:
         """Cycle through dataloader, restarting on exhaustion."""
@@ -60,28 +60,39 @@ class ClientState:
     def local_round(
         self,
         loss_fn: Callable[[nn.Module, dict], torch.Tensor],
-    ) -> List[Tuple[int, float, float]]:
+        *,
+        apply: bool = True,
+    ) -> list[tuple[int, float, float]]:
         """Execute ``local_steps`` MeZO steps locally.
+
+        Args:
+            loss_fn: Loss function ``(model, batch) -> scalar tensor``.
+            apply: If True (default), apply each MeZO update in-place via
+                ``mezo_update`` (or ``nesterov_step`` if ``nesterov_state`` is set).
+                If False, return ``(seed, rho, loss_plus)`` triples without
+                mutating parameters — use with ``consensus_via_updates``, which
+                owns the eventual parameter mutation.
 
         Returns:
             List of ``(seed, projected_grad, loss_plus)`` from each local step.
         """
-        history: List[Tuple[int, float, float]] = []
+        history: list[tuple[int, float, float]] = []
         for _ in range(self.local_steps):
             batch = self._next_batch()
             seed, rho, loss_plus = mezo_step(
                 self.model, batch, loss_fn, self.mezo_config, rng=self.rng
             )
-            if self.nesterov_state is not None:
-                nesterov_step(
-                    self.model,
-                    self.nesterov_state,
-                    seed=seed,
-                    projected_grad=rho,
-                    lr=self.mezo_config.lr,
-                    weight_decay=self.mezo_config.weight_decay,
-                )
-            else:
-                mezo_update(self.model, seed=seed, projected_grad=rho, config=self.mezo_config)
+            if apply:
+                if self.nesterov_state is not None:
+                    nesterov_step(
+                        self.model,
+                        self.nesterov_state,
+                        seed=seed,
+                        projected_grad=rho,
+                        lr=self.mezo_config.lr,
+                        weight_decay=self.mezo_config.weight_decay,
+                    )
+                else:
+                    mezo_update(self.model, seed=seed, projected_grad=rho, config=self.mezo_config)
             history.append((seed, rho, loss_plus))
         return history

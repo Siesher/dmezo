@@ -20,8 +20,8 @@ Drives the main D-MeZO loop:
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable, Dict, List, Optional
 
 import numpy as np
 import torch
@@ -51,13 +51,13 @@ class SimulatorConfig:
 
 
 def run_simulation(
-    clients: List[ClientState],
+    clients: list[ClientState],
     topology: MixingMatrix,
     loss_fn: Callable[[nn.Module, dict], torch.Tensor],
     config: SimulatorConfig,
-    eval_fn: Optional[Callable[[nn.Module, int], Dict[str, float]]] = None,
-    logger: Optional[Callable[[Dict], None]] = None,
-) -> List[Dict]:
+    eval_fn: Callable[[nn.Module, int], dict[str, float]] | None = None,
+    logger: Callable[[dict], None] | None = None,
+) -> list[dict]:
     """Run the federated training loop.
 
     Args:
@@ -73,21 +73,31 @@ def run_simulation(
         List of per-round logs.
     """
     if topology.n != len(clients):
-        raise ValueError(
-            f"Topology has {topology.n} nodes but {len(clients)} clients provided"
+        raise ValueError(f"Topology has {topology.n} nodes but {len(clients)} clients provided")
+
+    # Nesterov + update_share is not yet integrated (see docs/07-audit-harden.md D1).
+    if config.consensus_mode == "update_share" and any(
+        c.nesterov_state is not None for c in clients
+    ):
+        raise NotImplementedError(
+            "Nesterov + update_share is not yet implemented. Use "
+            "consensus_mode='weight_avg', or set nesterov_state=None on all clients."
         )
 
-    logs: List[Dict] = []
+    # local_round must NOT apply the update when update_share owns the apply,
+    # otherwise the update is applied twice (once locally, once in consensus).
+    apply_local = config.consensus_mode != "update_share"
+
+    logs: list[dict] = []
     for r in range(config.num_rounds):
-        round_log: Dict = {"round": r}
+        round_log: dict = {"round": r}
 
         # 1. Local MeZO steps.
-        all_seeds: List[int] = []
-        all_rhos: List[float] = []
-        all_losses: List[float] = []
+        all_seeds: list[int] = []
+        all_rhos: list[float] = []
+        all_losses: list[float] = []
         for c in clients:
-            history = c.local_round(loss_fn)
-            # For update_share mode, only local_steps=1 is currently supported.
+            history = c.local_round(loss_fn, apply=apply_local)
             last_seed, last_rho, last_loss = history[-1]
             all_seeds.append(last_seed)
             all_rhos.append(last_rho)
@@ -100,21 +110,9 @@ def run_simulation(
         if config.consensus_mode == "weight_avg":
             consensus_via_weights(clients, topology.W)
         elif config.consensus_mode == "update_share":
-            # For update_share, clients already applied their local update during
-            # local_round(). We additionally exchange (seed, rho) pairs and
-            # apply the *neighbor* contribution as an extra step.
-            #
-            # Simpler interpretation here: skip local_update for update_share by
-            # using nesterov_state=None and rolling the consensus into one step.
-            # To keep this skeleton simple, current implementation calls
-            # consensus_via_updates which assumes the local step has NOT been
-            # applied yet. Callers should configure clients with
-            # local_steps=0-style behavior — see scripts/04 for usage.
-            consensus_via_updates(
-                clients, topology.W, all_seeds, all_rhos, clients[0].mezo_config
-            )
+            consensus_via_updates(clients, topology.W, all_seeds, all_rhos, clients[0].mezo_config)
         elif config.consensus_mode == "none":
-            pass  # Pure local training, baseline.
+            pass
         else:
             raise ValueError(f"Unknown consensus_mode={config.consensus_mode!r}")
 
