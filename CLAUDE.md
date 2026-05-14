@@ -13,7 +13,7 @@
 Этап: **скелет создан, Day 1 sanity check готов к запуску**. Что есть:
 
 - Core MeZO step (`src/dmezo/mezo/`) — основан на референсной имплементации Princeton, адаптирован под HF Transformers AutoModel.
-- Federated simulator (`src/dmezo/federated/`) — in-process многоклиентный симулятор с настраиваемой topology.
+- Federated simulator (`src/dmezo/federated/`) — in-process многоклиентный симулятор с настраиваемой topology. Покрыт интеграционными тестами (`tests/test_consensus.py`, `tests/test_simulator.py`); `consensus_via_updates` переписан под O(np), исправлен баг с двойным update в `update_share`. См. `docs/07-audit-harden.md`.
 - Day 1 скрипт (`scripts/01_sanity_check_mezo.py`) — централизованный MeZO на Qwen3-4B + SST-2, цель — воспроизвести базовый результат и проверить, что MeZO стабильно сходится на Qwen.
 - Документация в `docs/` — лит-обзор, спецификация алгоритма, шаблон теоремы, недельный план.
 
@@ -63,6 +63,8 @@
 
 **Несогласованность между клиентами в симуляторе.** Проверь, что counter PRNG один на всех клиентов (общая глобальная переменная или Lamport-style counter). Если клиенты получают разные seed на одном шаге — это баг.
 
+**Nesterov + update_share падает с NotImplementedError.** Это сознательное ограничение — velocity-update внутри consensus не реализован (см. `docs/07-audit-harden.md` D1). Используй либо `consensus_mode="weight_avg"` (Nesterov работает локально), либо `nesterov_state=None`.
+
 ## Roadmap и приоритеты
 
 См. `docs/05-week1-plan.md` для детального плана недели. Краткая последовательность:
@@ -83,9 +85,6 @@ pip install -e .
 
 # Day 1 sanity check
 python scripts/01_sanity_check_mezo.py --config configs/qwen3_4b_sst2.yaml
-
-# 4-client federated
-python scripts/04_dmezo_4clients_topologies.py --config configs/dmezo_ring.yaml
 
 # Тесты
 pytest tests/ -v
