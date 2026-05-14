@@ -117,6 +117,26 @@ def test_no_double_update_in_update_share():
         )
 
 
+def test_update_share_requires_local_steps_eq_1():
+    """update_share with local_steps > 1 must fail early (otherwise silently drops grads)."""
+    clients = make_tiny_clients(n=1, mezo_lr=1e-3, mezo_eps=1e-3)
+    clients[0].local_steps = 2  # multi-step local would silently lose the first (seed, rho)
+
+    cfg = SimulatorConfig(
+        num_rounds=1,
+        consensus_mode="update_share",
+        eval_every=0,
+        log_every=0,
+    )
+    with pytest.raises(ValueError, match="local_steps"):
+        run_simulation(
+            clients=clients,
+            topology=_self_loop_topology(),
+            loss_fn=_causal_lm_loss,
+            config=cfg,
+        )
+
+
 def test_nesterov_update_share_raises():
     """Nesterov + update_share must raise NotImplementedError (guard for D1)."""
     clients = make_tiny_clients(n=1, mezo_lr=1e-3, mezo_eps=1e-3)

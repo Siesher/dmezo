@@ -86,9 +86,6 @@ pip install -e .
 # Day 1 sanity check
 python scripts/01_sanity_check_mezo.py --config configs/qwen3_4b_sst2.yaml
 
-# 4-client federated
-python scripts/04_dmezo_4clients_topologies.py --config configs/dmezo_ring.yaml
-
 # Тесты
 pytest tests/ -v
 ```

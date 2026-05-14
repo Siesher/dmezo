@@ -106,6 +106,11 @@ def consensus_via_updates(
         ``ClientState.local_round`` was called with ``apply=False`` so that no
         local update has been applied yet — this function is the single owner
         of parameter mutation in ``consensus_mode="update_share"``.
+
+        Side effect: ``torch.manual_seed`` is called inside the inner loop, so
+        after this function returns the global torch RNG state reflects the
+        last neighbor's seed. Callers that draw from the global torch RNG must
+        re-seed (``mezo_step`` already does so internally).
     """
     n = len(clients)
     if W.shape != (n, n):

@@ -84,6 +84,17 @@ def run_simulation(
             "consensus_mode='weight_avg', or set nesterov_state=None on all clients."
         )
 
+    # update_share consumes only the last (seed, rho) from each client's history,
+    # so local_steps > 1 would silently drop earlier gradient estimates. Guard now
+    # rather than let users discover the data loss later.
+    if config.consensus_mode == "update_share" and any(c.local_steps != 1 for c in clients):
+        raise ValueError(
+            "consensus_mode='update_share' requires local_steps == 1 for every client; "
+            "got local_steps in {" + ", ".join(str(c.local_steps) for c in clients) + "}. "
+            "Multi-step local training under update_share is not yet supported "
+            "(see docs/07-audit-harden.md Note in consensus_via_updates)."
+        )
+
     # local_round must NOT apply the update when update_share owns the apply,
     # otherwise the update is applied twice (once locally, once in consensus).
     apply_local = config.consensus_mode != "update_share"

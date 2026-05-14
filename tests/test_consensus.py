@@ -91,10 +91,10 @@ def test_via_updates_deterministic_under_replay():
 def test_via_updates_complete_graph_consensus():
     """Same-init clients on a complete graph stay close after many update_share rounds.
 
-    With identical initial params and a complete (rho=0) graph, all clients
-    receive the same averaged update each round, so they should stay bit-identical.
-    This validates that the F2 apply-flag plumbing is wired correctly via the
-    public API: a single ``run_simulation`` call.
+    With identical initial params and a complete graph (spectral gap = 0), all
+    clients receive the same averaged update each round, so they should stay
+    bit-identical. This validates that the F2 apply-flag plumbing is wired
+    correctly via the public API: a single ``run_simulation`` call.
     """
     from dmezo.federated.simulator import SimulatorConfig, run_simulation
 
@@ -108,7 +108,7 @@ def test_via_updates_complete_graph_consensus():
         config=cfg,
     )
 
-    # All clients should have nearly identical parameters (rho=0 → one-step consensus).
+    # All clients should have nearly identical parameters (spectral gap = 0 → one-step consensus).
     ref = {name: p.data for name, p in clients[0].model.named_parameters()}
     for i in range(1, n):
         for name, p in clients[i].model.named_parameters():
