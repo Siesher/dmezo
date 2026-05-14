@@ -20,17 +20,14 @@ direction of this project.
 
 from __future__ import annotations
 
-from typing import List
-
 import numpy as np
 import torch
-from torch import nn
 
-from dmezo.mezo.step import MeZOConfig, _collect_optim_params
 from dmezo.federated.client import ClientState
+from dmezo.mezo.step import MeZOConfig, _collect_optim_params, _is_decay_param
 
 
-def consensus_via_weights(clients: List[ClientState], W: np.ndarray) -> None:
+def consensus_via_weights(clients: list[ClientState], W: np.ndarray) -> None:
     """Apply consensus by directly averaging client parameters per W.
 
     For each parameter p:
@@ -78,75 +75,72 @@ def consensus_via_weights(clients: List[ClientState], W: np.ndarray) -> None:
 
 
 def consensus_via_updates(
-    clients: List[ClientState],
+    clients: list[ClientState],
     W: np.ndarray,
-    seeds: List[int],
-    projected_grads: List[float],
+    seeds: list[int],
+    projected_grads: list[float],
     config: MeZOConfig,
 ) -> None:
     """Apply consensus by exchanging (seed, rho) pairs and locally combining updates.
 
-    This is the *communication-efficient* consensus: each client receives from
-    its neighbors only ``(seed_j, rho_j)`` pairs. Then for each parameter p_i:
+    For each client ``i``, computes::
 
-        p_i^{new} = p_i - lr * sum_j W[i, j] * (rho_j * z_{seed_j} + decay * p_i)
+        theta_i <- theta_i - lr * (sum_j W[i, j] * rho_j * z(seed_j) + decay * theta_i)
 
-    Each client regenerates ``z_{seed_j}`` locally from the seed. Total bandwidth
-    per round: O(n^2) scalars in the worst case (every pair exchanges), but with
-    sparse W only O(|E|) scalars are actually transmitted.
+    where ``z(seed_j)`` is regenerated locally and ``decay`` is the
+    weight_decay coefficient (applied only to non-bias / non-norm params).
+
+    Complexity per round: O(n_clients * n_neighbors * p), where ``p`` is the
+    number of trainable parameters. Each ``z`` is generated exactly once per
+    (i, j, p_k) triple.
 
     Args:
-        clients: List of ClientState.
-        W: Mixing matrix.
-        seeds: Per-client seeds from this round's local step (assumes local_steps=1).
-        projected_grads: Per-client projected gradients.
-        config: MeZO config (for lr, weight_decay).
+        clients: All client states. Must share parameter order and shapes.
+        W: ``n x n`` doubly-stochastic mixing matrix.
+        seeds: Per-client seeds from the round's MeZO step (``len == n_clients``).
+        projected_grads: Per-client projected gradients (``len == n_clients``).
+        config: MeZO config (``lr``, ``weight_decay``).
 
     Note:
-        Currently supports ``local_steps == 1`` for the simplest analysis.
-        For local_steps > 1, clients accumulate (seed, rho) sequences and apply
-        them in order — left as a follow-up implementation.
+        Assumes ``local_steps == 1`` per round and that
+        ``ClientState.local_round`` was called with ``apply=False`` so that no
+        local update has been applied yet — this function is the single owner
+        of parameter mutation in ``consensus_mode="update_share"``.
     """
     n = len(clients)
     if W.shape != (n, n):
-        raise ValueError(f"W must be {n}x{n}")
+        raise ValueError(f"W must be {n}x{n}, got {W.shape}")
     if len(seeds) != n or len(projected_grads) != n:
         raise ValueError("seeds and projected_grads must have len == n_clients")
 
     for i, client in enumerate(clients):
-        for name, param in client.model.named_parameters():
-            if not param.requires_grad:
+        named = [(name, p) for name, p in client.model.named_parameters() if p.requires_grad]
+        if not named:
+            continue
+
+        accum = {name: torch.zeros_like(p.data) for name, p in named}
+
+        # Each neighbor contributes W[i, j] * rho_j * z(seed_j) in a single
+        # deterministic pass over named parameters.
+        for j in range(n):
+            wij = float(W[i, j])
+            if wij == 0.0:
                 continue
-            lname = name.lower()
-            decay = (
-                config.weight_decay
-                if ("bias" not in lname) and ("layer_norm" not in lname) and ("layernorm" not in lname)
-                else 0.0
-            )
-            # Accumulate weighted update.
-            update = torch.zeros_like(param.data)
-            for j in range(n):
-                wij = float(W[i, j])
-                if wij == 0:
-                    continue
-                # Regenerate z_j from seed_j.
-                # NOTE: torch.manual_seed sets a global state, so we must replay
-                # the perturbation in the same order as the client did.
-                torch.manual_seed(int(seeds[j]))
-                # Iterate parameters in same order, advancing global RNG.
-                for n_, p_ in client.model.named_parameters():
-                    if not p_.requires_grad:
-                        continue
-                    z = torch.normal(
-                        mean=0.0, std=1.0,
-                        size=p_.data.size(),
-                        device=p_.data.device,
-                        dtype=p_.data.dtype,
-                    )
-                    if n_ == name:
-                        update.add_(z, alpha=wij * float(projected_grads[j]))
-                        break
-                else:
-                    continue
-            update.add_(param.data, alpha=decay)
-            param.data.add_(update, alpha=-config.lr)
+            coef = wij * float(projected_grads[j])
+            torch.manual_seed(int(seeds[j]))
+            for name, p in named:
+                z = torch.normal(
+                    mean=0.0,
+                    std=1.0,
+                    size=p.data.size(),
+                    device=p.data.device,
+                    dtype=p.data.dtype,
+                )
+                accum[name].add_(z, alpha=coef)
+
+        # Apply: theta -= lr * (accum + decay * theta).
+        for name, p in named:
+            decay = config.weight_decay if _is_decay_param(name) else 0.0
+            if decay != 0.0:
+                accum[name].add_(p.data, alpha=decay)
+            p.data.add_(accum[name], alpha=-config.lr)
