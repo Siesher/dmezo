@@ -1,0 +1,38 @@
+# Local pre-flight on RTX 2080 (8 GB, Turing, no bf16, no flash-attn-2).
+#
+# Purpose: catch pipeline bugs (loader, MeZO step wiring, dtype mismatches)
+# locally before burning Colab compute on the real Qwen3-4B run.
+#
+# Expected wall-clock on RTX 2080: ~3-8 minutes for 100 steps.
+# Memory footprint: Qwen3-0.6B fp16 ≈ 1.2 GB weights + activations.
+#
+# Success criteria (smoke level):
+#   - script completes without error
+#   - eval_loss is finite (no NaN/Inf)
+#   - projected_grad is non-zero and finite
+#   - eval_loss moves (not necessarily down — 100 steps is too few for a real signal)
+
+seed: 42
+output_dir: experiments/preflight_qwen3_06b_sst2
+
+model:
+  name: Qwen/Qwen3-0.6B
+  dtype: float16          # RTX 2080 (Turing, CC 7.5) has fp16 tensor cores; no native bf16
+  flash_attention: false  # flash-attn-2 requires Ampere+ (CC 8.0+); use eager on Turing
+
+data:
+  batch_size: 4
+  max_length: 128
+  num_train_examples: 200
+  num_eval_examples: 100
+
+mezo:
+  lr: 1.0e-6
+  eps: 1.0e-3
+  weight_decay: 0.0
+
+train:
+  steps: 100
+  eval_every: 50
+  log_every: 10
+  eval_batches: 10

@@ -10,12 +10,16 @@
 
 ## Текущее состояние проекта
 
-Этап: **скелет создан, Day 1 sanity check готов к запуску**. Что есть:
+Этап: **скелет создан, pre-flight локально пройден, Day 1 sanity готов к Colab**. Что есть:
 
 - Core MeZO step (`src/dmezo/mezo/`) — основан на референсной имплементации Princeton, адаптирован под HF Transformers AutoModel.
 - Federated simulator (`src/dmezo/federated/`) — in-process многоклиентный симулятор с настраиваемой topology. Покрыт интеграционными тестами (`tests/test_consensus.py`, `tests/test_simulator.py`); `consensus_via_updates` переписан под O(np), исправлен баг с двойным update в `update_share`. См. `docs/07-audit-harden.md`.
-- Day 1 скрипт (`scripts/01_sanity_check_mezo.py`) — централизованный MeZO на Qwen3-4B + SST-2, цель — воспроизвести базовый результат и проверить, что MeZO стабильно сходится на Qwen.
+- Day 1 скрипт (`scripts/01_sanity_check_mezo.py`) — централизованный MeZO с MLflow tracking. Прогнан локально на Qwen3-0.6B / SST-2 (RTX 2080, fp16, 100 шагов): eval loss 1.55 → 0.33 (−78%), 12s wall-clock. Pipeline работает.
+- Configs: `configs/qwen3_4b_sst2.yaml` (Colab/Blackwell), `configs/qwen3_06b_preflight.yaml` (локально на Turing — fp16, no flash-attn).
+- Experiment tracking: **MLflow** (file backend, `./mlruns/`). См. `mlflow ui --backend-store-uri file:./mlruns`. НЕ предлагай wandb/aim/TensorBoard, выбор сделан осознанно.
 - Документация в `docs/` — лит-обзор, спецификация алгоритма, шаблон теоремы, недельный план.
+
+**Локальная разработка на CUDA torch.** Для RTX 2080 (Turing) поставлен `torch==2.12.0+cu126` через `uv pip install --index-url https://download.pytorch.org/whl/cu126 --reinstall-package torch`. Так как pyproject.toml не пинит CUDA-вариант, любой `uv run` (он же `uv sync`) перезатирает torch на CPU build. **Использовать `uv run --no-sync ...` для всех локальных команд**, иначе CUDA torch исчезнет.
 
 ## Главные инварианты, которые нельзя нарушать
 

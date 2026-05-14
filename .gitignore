@@ -37,6 +37,8 @@ experiments/*
 !experiments/.gitkeep
 checkpoints/
 wandb/
+mlruns/
+mlflow.db
 *.pt
 *.pth
 *.bin
