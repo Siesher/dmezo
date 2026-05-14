@@ -1,0 +1,49 @@
+# Day 4: 2-client federated D-MeZO on Qwen3-4B / SST-2.
+#
+# Goal: show that splitting training data across 2 clients + weight-averaging
+# consensus reaches similar final eval loss as the Day 1 centralized run
+# (final eval 0.17). Success criterion: federated final <= 0.17 * 1.1 = 0.19.
+#
+# Memory: 2 x Qwen3-4B bf16 = 16 GB weights + activations ~ 25 GB peak.
+# Comfortable on Blackwell 96 GB.
+#
+# Consensus: weight_avg (simpler than update_share, debugged via tests/
+# test_consensus.py::test_via_weights_averages_params_on_complete_graph).
+# Will move to update_share in Day 5.
+
+experiment_name: dmezo_federated
+seed: 42
+output_dir: experiments/03_dmezo_2c_complete_qwen3_4b_sst2
+
+model:
+  name: Qwen/Qwen3-4B
+  dtype: bfloat16
+  flash_attention: false
+
+data:
+  task: sst2
+  batch_size: 8
+  max_length: 256
+  num_train_examples: 1000   # split 500/500 across the 2 clients
+  num_eval_examples: 200
+
+mezo:
+  # Transferred from Day 1 ablation; works smoothly on Qwen3-4B / SST-2.
+  lr: 3.0e-7
+  eps: 1.0e-3
+  weight_decay: 0.0
+
+nesterov:
+  enabled: false  # Day 4 baseline; add in Day 7 ablation
+
+federated:
+  num_clients: 2
+  topology: complete       # complete graph; with n=2 same as ring
+  consensus_mode: weight_avg  # weight_avg | update_share | none
+  local_steps: 1
+
+train:
+  num_rounds: 1000   # matches Day 1 step count for fair comparison
+  eval_every: 100
+  log_every: 20
+  eval_batches: 20
