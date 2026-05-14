@@ -1,0 +1,43 @@
+# Day 4-5 D-MeZO: 4-client federated MeZO on Qwen3-4B, ring topology, SST-2.
+#
+# Memory budget (Blackwell 96 GB):
+#   Full-parameter: 4 * 8 GB (weights) + 4 * 8 GB (velocity, if Nesterov) = 64 GB. OK.
+#   With activations and overhead: ~75 GB peak.
+
+seed: 42
+output_dir: experiments/04_dmezo_4c_ring_qwen3_4b
+
+model:
+  name: Qwen/Qwen3-4B
+  dtype: bfloat16
+  flash_attention: true
+  use_lora: false   # set true to use shared-base + per-client LoRA (cheaper)
+
+data:
+  batch_size: 4   # smaller per-client batch since we have 4 clients
+  max_length: 256
+  num_train_examples: 4000  # split across clients (1000 each)
+  num_eval_examples: 200
+  partition: iid  # iid | dirichlet | label_skew
+  dirichlet_alpha: 0.5
+
+mezo:
+  lr: 1.0e-6
+  eps: 1.0e-3
+  weight_decay: 0.0
+
+nesterov:
+  enabled: true
+  beta: 0.9
+
+federated:
+  num_clients: 4
+  topology: ring   # ring | complete | random_regular | star
+  random_regular_degree: 3
+  consensus_mode: update_share  # update_share | weight_avg | none
+  local_steps: 1
+
+train:
+  num_rounds: 500
+  eval_every: 50
+  log_every: 5

@@ -1,0 +1,35 @@
+# Day 1 sanity check: MeZO on Qwen3-4B / SST-2.
+#
+# Expected wall-clock on RTX PRO 6000 Blackwell: ~1-2 hours for 1000 steps.
+# Expected Colab compute units consumed: ~20-40 (depending on tariff).
+#
+# Success criteria:
+#   - eval_loss drops by >10% over the run
+#   - no NaN/Inf in projected_grad
+
+seed: 42
+output_dir: experiments/01_sanity_qwen3_4b_sst2
+
+model:
+  name: Qwen/Qwen3-4B
+  dtype: bfloat16
+  flash_attention: true
+
+data:
+  batch_size: 8
+  max_length: 256
+  num_train_examples: 1000
+  num_eval_examples: 200
+
+mezo:
+  # Princeton defaults for full-parameter MeZO. For larger models or LoRA-only
+  # you may need lr=1e-7 to lr=1e-5 — tune on a 100-step pilot first.
+  lr: 1.0e-6
+  eps: 1.0e-3
+  weight_decay: 0.0
+
+train:
+  steps: 1000
+  eval_every: 200
+  log_every: 20
+  eval_batches: 20
