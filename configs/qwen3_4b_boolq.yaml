@@ -1,0 +1,36 @@
+# Qwen3-4B / BoolQ — full-attention baseline for the cross-dataset comparison.
+#
+# Paired with qwen3_5_4b_base_boolq.yaml so we can compare:
+#   full attention (Qwen3-4B)        vs  hybrid linear-attention (Qwen3.5-4B-Base)
+#   SST-2 (drop 88.1% confirmed Day1)    SST-2 (drop 94.7% confirmed)
+#   BoolQ (this config — TBD)             BoolQ (paired config — TBD)
+#
+# Forms a 2x2 design giving direct evidence for the paper's section
+# "MeZO across architectures and tasks".
+
+experiment_name: dmezo_sanity
+seed: 42
+output_dir: experiments/02_sanity_qwen3_4b_boolq
+
+model:
+  name: Qwen/Qwen3-4B
+  dtype: bfloat16
+  flash_attention: false
+
+data:
+  task: boolq
+  batch_size: 4
+  max_length: 512
+  num_train_examples: 1000
+  num_eval_examples: 200
+
+mezo:
+  lr: 3.0e-7
+  eps: 1.0e-3
+  weight_decay: 0.0
+
+train:
+  steps: 1000
+  eval_every: 100
+  log_every: 20
+  eval_batches: 20

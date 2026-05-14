@@ -28,7 +28,7 @@ import torch
 # Allow running as a script from project root.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from dmezo.data.superglue import build_sst2_loader, causal_lm_loss  # noqa: E402
+from dmezo.data.superglue import causal_lm_loss  # noqa: E402
 from dmezo.mezo.step import MeZOConfig, mezo_step, mezo_update  # noqa: E402
 from dmezo.models.loader import load_causal_lm  # noqa: E402
 from dmezo.utils.config import load_yaml_config  # noqa: E402
@@ -155,22 +155,25 @@ def main() -> None:
             )
 
         # ---- Data
+        task = cfg["data"].get("task", "sst2")
         bs = cfg["data"].get("batch_size", 8)
         max_len = cfg["data"].get("max_length", 256)
         n_train = cfg["data"].get("num_train_examples", 1000)
         n_eval = cfg["data"].get("num_eval_examples", 200)
 
-        logger.info("Building dataloaders...")
-        train_loader = build_sst2_loader(
-            tokenizer,
+        logger.info(f"Building dataloaders for task={task!r}...")
+        train_loader = build_loader_for_task(
+            task,
+            tokenizer=tokenizer,
             split="train",
             batch_size=bs,
             max_length=max_len,
             shuffle=True,
             num_examples=n_train,
         )
-        eval_loader = build_sst2_loader(
-            tokenizer,
+        eval_loader = build_loader_for_task(
+            task,
+            tokenizer=tokenizer,
             split="validation",
             batch_size=bs,
             max_length=max_len,

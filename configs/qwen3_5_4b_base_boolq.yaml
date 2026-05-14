@@ -1,0 +1,41 @@
+# Qwen3.5-4B-Base / BoolQ — cross-dataset hybrid-arch sanity.
+#
+# Companion to qwen3_5_4b_base_sst2.yaml (which PASSed with drop 94.7%).
+# Goal: confirm that the MeZO-on-hybrid-linear-attention finding is not
+# specific to SST-2. BoolQ is a different task type (yes/no QA over a long
+# passage), so a PASS here strengthens the empirical claim significantly.
+#
+# Princeton MeZO 2023 used 20k steps for BoolQ at lr=1e-6 (OPT-13B). Our
+# 1000-step sanity will not fully converge — but should clearly show loss
+# decreasing, which is enough to confirm MeZO mechanics work on this arch
+# for this task.
+#
+# Expected: init eval ~3-5 (Base model, BoolQ harder than SST-2 zero-shot),
+# final eval somewhere noticeably below init, smooth descent.
+
+experiment_name: dmezo_sanity
+seed: 42
+output_dir: experiments/02_sanity_qwen3_5_4b_base_boolq
+
+model:
+  name: Qwen/Qwen3.5-4B-Base
+  dtype: bfloat16
+  flash_attention: false
+
+data:
+  task: boolq
+  batch_size: 4         # halved vs SST-2 because seq is 2x longer
+  max_length: 512       # BoolQ passages are long; 512 covers most
+  num_train_examples: 1000
+  num_eval_examples: 200
+
+mezo:
+  lr: 3.0e-7
+  eps: 1.0e-3
+  weight_decay: 0.0
+
+train:
+  steps: 1000
+  eval_every: 100
+  log_every: 20
+  eval_batches: 20
