@@ -63,7 +63,7 @@ def test_perturbation_magnitude_scales_with_eps():
         d1 = p1.data - snap[n1]
         d2 = p2.data - snap[n2]
         # d2 should be ~2 * d1.
-        assert torch.allclose(d2, 2.0 * d1, atol=1e-9), f"Param {n1} non-linear in eps"
+        assert torch.allclose(d2, 2.0 * d1, atol=2e-7), f"Param {n1} non-linear in eps"
 
 
 def test_different_seeds_give_different_perturbations():

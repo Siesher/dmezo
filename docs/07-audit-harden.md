@@ -1,6 +1,6 @@
 # 07. Audit & harden федерального ядра
 
-**Дата:** 2026-05-14. **Статус:** spec (готов к implementation plan).
+**Дата spec:** 2026-05-14. **Статус:** реализовано 2026-05-14 (commit `a009976`). **План реализации:** [docs/08-audit-harden-plan.md](08-audit-harden-plan.md).
 
 ## Зачем
 
