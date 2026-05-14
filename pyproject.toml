@@ -55,3 +55,4 @@ ignore = ["E501"]  # line length handled by formatter
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 addopts = "-v --tb=short"
+pythonpath = ["."]
