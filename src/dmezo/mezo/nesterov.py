@@ -26,8 +26,8 @@ update from ``theta``. This is implemented as the ``look_ahead=True`` mode.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Callable, Dict, Tuple
 
 import numpy as np
 import torch
@@ -39,22 +39,59 @@ class NesterovState:
     """Container for per-parameter velocity buffers and config.
 
     Attributes:
-        beta: Momentum coefficient. Common defaults: 0.9 (heavy-ball),
+        beta: Momentum coefficient at the current round. With a schedule
+            configured (``beta_end`` and ``num_rounds_total`` both set), this
+            field is mutated by :meth:`update_schedule` each round; otherwise
+            it stays at the initial value. Common defaults: 0.9 (heavy-ball),
             0.95-0.99 for slower mixing.
         look_ahead: If True, use full Nesterov look-ahead (evaluate gradient at
             theta + beta * v before updating). If False, use heavy-ball form.
+        beta_end: If set together with ``num_rounds_total``, enables a linear
+            β-schedule between the initial ``beta`` value and ``beta_end`` over
+            ``num_rounds_total`` rounds. Default ``None`` keeps β constant.
+        num_rounds_total: Horizon for the β-schedule. Must be ≥ 2 when set.
+            Out-of-range round indices are clamped to the [0, total-1] interval.
         velocities: Per-parameter velocity tensors, keyed by parameter name.
             Allocated lazily.
     """
 
     beta: float = 0.9
     look_ahead: bool = False
-    velocities: Dict[str, torch.Tensor] = field(default_factory=dict)
+    beta_end: float | None = None
+    num_rounds_total: int | None = None
+    velocities: dict[str, torch.Tensor] = field(default_factory=dict)
+    # Snapshotted at construction so update_schedule can interpolate from the
+    # original start even if ``beta`` has been mutated by prior schedule calls.
+    _beta_start: float = field(init=False, default=0.0)
+
+    def __post_init__(self) -> None:
+        self._beta_start = float(self.beta)
 
     def reset(self) -> None:
         """Zero out all velocities (e.g., at the start of a new run)."""
         for v in self.velocities.values():
             v.zero_()
+
+    def update_schedule(self, round_idx: int) -> None:
+        """Mutate ``self.beta`` based on ``round_idx`` if a schedule is configured.
+
+        Linear interpolation: ``beta(t) = beta_start + (t / (T-1)) * (beta_end - beta_start)``
+        where ``T = num_rounds_total``. Clamped to ``[0, T-1]`` for ``round_idx``
+        below 0 or at/above ``T``.
+
+        No-op when either ``beta_end`` or ``num_rounds_total`` is ``None``.
+        """
+        if self.beta_end is None or self.num_rounds_total is None:
+            return
+        total = int(self.num_rounds_total)
+        if total < 2:
+            # Degenerate schedule — single-round horizon. Snap to start.
+            self.beta = self._beta_start
+            return
+        # Clamp round_idx to [0, total-1].
+        r = min(max(round_idx, 0), total - 1)
+        progress = r / (total - 1)
+        self.beta = self._beta_start + progress * (float(self.beta_end) - self._beta_start)
 
 
 def _ensure_velocity_buffer(state: NesterovState, name: str, param: nn.Parameter) -> torch.Tensor:
@@ -137,10 +174,10 @@ def nesterov_lookahead_step(
     state: NesterovState,
     inputs: dict,
     loss_fn: Callable[[nn.Module, dict], torch.Tensor],
-    config: "MeZOConfig",  # noqa: F821 — forward-imported below
+    config: MeZOConfig,  # noqa: F821 — forward-imported below
     *,
-    rng: "np.random.Generator | None" = None,  # noqa: F821
-) -> Tuple[int, float, float]:
+    rng: np.random.Generator | None = None,  # noqa: F821
+) -> tuple[int, float, float]:
     """One look-ahead Nesterov-MeZO step.
 
     Differs from the heavy-ball variant (``nesterov_step``): the projected

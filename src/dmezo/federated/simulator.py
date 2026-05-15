@@ -108,7 +108,7 @@ def run_simulation(
         all_rhos: list[float] = []
         all_losses: list[float] = []
         for c in clients:
-            history = c.local_round(loss_fn, apply=apply_local)
+            history = c.local_round(loss_fn, apply=apply_local, round_idx=r)
             last_seed, last_rho, last_loss = history[-1]
             all_seeds.append(last_seed)
             all_rhos.append(last_rho)

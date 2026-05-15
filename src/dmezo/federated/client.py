@@ -62,6 +62,7 @@ class ClientState:
         loss_fn: Callable[[nn.Module, dict], torch.Tensor],
         *,
         apply: bool = True,
+        round_idx: int = 0,
     ) -> list[tuple[int, float, float]]:
         """Execute ``local_steps`` MeZO steps locally.
 
@@ -72,10 +73,16 @@ class ClientState:
                 If False, return ``(seed, rho, loss_plus)`` triples without
                 mutating parameters — use with ``consensus_via_updates``, which
                 owns the eventual parameter mutation.
+            round_idx: Current federated round index. Forwarded to
+                ``NesterovState.update_schedule`` so β can be β(t) when a
+                schedule is configured. Default 0 (no-op when schedule is off).
 
         Returns:
             List of ``(seed, projected_grad, loss_plus)`` from each local step.
         """
+        # Update β from schedule before any nesterov_step / nesterov_lookahead_step.
+        if self.nesterov_state is not None:
+            self.nesterov_state.update_schedule(round_idx)
         history: list[tuple[int, float, float]] = []
         for _ in range(self.local_steps):
             batch = self._next_batch()

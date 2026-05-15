@@ -244,12 +244,33 @@ def main() -> None:
         nesterov_enabled = cfg.get("nesterov", {}).get("enabled", False)
         nesterov_beta = float(cfg.get("nesterov", {}).get("beta", 0.9))
         nesterov_look_ahead = bool(cfg.get("nesterov", {}).get("look_ahead", False))
+        # Optional β-schedule: linear decay from `beta` to `beta_end` over the run.
+        # If `num_rounds_total` is omitted from cfg.nesterov, default to train.num_rounds
+        # so the schedule auto-aligns with the training horizon.
+        nest_cfg_block = cfg.get("nesterov", {})
+        nesterov_beta_end_raw = nest_cfg_block.get("beta_end", None)
+        nesterov_beta_end = (
+            float(nesterov_beta_end_raw) if nesterov_beta_end_raw is not None else None
+        )
+        nesterov_total_raw = nest_cfg_block.get("num_rounds_total", None)
+        nesterov_total = (
+            int(nesterov_total_raw)
+            if nesterov_total_raw is not None
+            else int(cfg["train"]["num_rounds"])
+            if nesterov_beta_end is not None
+            else None
+        )
         local_steps = int(cfg["federated"].get("local_steps", 1))
 
         clients = []
         for ci in range(n_clients):
             ns = (
-                NesterovState(beta=nesterov_beta, look_ahead=nesterov_look_ahead)
+                NesterovState(
+                    beta=nesterov_beta,
+                    look_ahead=nesterov_look_ahead,
+                    beta_end=nesterov_beta_end,
+                    num_rounds_total=nesterov_total,
+                )
                 if nesterov_enabled
                 else None
             )

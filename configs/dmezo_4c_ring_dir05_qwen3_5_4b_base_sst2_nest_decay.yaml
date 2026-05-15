@@ -1,0 +1,65 @@
+# R1d: Nesterov-MeZO с β-decay schedule + ρ-clipping=50 на worst Day 5 cell.
+#
+# Context: R1b (β=0.9 constant + clip50, run 052ee77c) показал что наивный
+# heavy-ball Nesterov-MeZO даёт 3× early-stage acceleration (best 0.119@R300
+# vs vanilla 0.138@R1000), но дрейфит позже из-за накопления velocity buffer
+# (final 0.225@R1000). R1d тестирует принципиальный fix: линейно сжимать β
+# с 0.9 до 0 за весь горизонт обучения, что должно:
+#   - сохранить early acceleration (R0-R300, β≈0.9-0.6)
+#   - подавить late drift (R600+, β→0.4→0, momentum затихает)
+#
+# β-schedule: linear decay from 0.9 to 0.0 over 1000 rounds.
+#   β(0) = 0.9, β(500) = 0.45, β(999) = 0.0
+#
+# Other knobs identical to R1b (clip50, seed=42) so the only difference is the
+# β-schedule itself — bit-exact ablation against R1b.
+#
+# Predicted outcomes (decreasing likelihood):
+#   1. Final < 0.13 — best of both worlds: early acceleration + late stability
+#   2. 0.13-0.17 — late drift fixed but no net acceleration captured
+#   3. 0.17-0.22 — schedule too aggressive (lost too much momentum too early)
+#   4. > 0.22 — unexpected; need different schedule shape (cosine, hold-then-decay)
+
+experiment_name: dmezo_federated_day8_rescue
+seed: 42
+output_dir: experiments/07_dmezo_4c_ring_dir05_qwen3_5_4b_base_sst2_nest_decay
+
+model:
+  name: Qwen/Qwen3.5-4B-Base
+  dtype: bfloat16
+  flash_attention: false
+
+data:
+  task: sst2
+  batch_size: 8
+  max_length: 256
+  num_train_examples: 2000
+  num_eval_examples: 200
+  partition_mode: dirichlet
+  partition_kwargs:
+    alpha: 0.5
+
+mezo:
+  lr: 3.0e-7
+  eps: 1.0e-3
+  weight_decay: 0.0
+  rho_clip: 50.0   # same as R1b
+
+nesterov:
+  enabled: true
+  beta: 0.9            # initial β at round 0
+  beta_end: 0.0        # final β at round num_rounds-1 (linear decay)
+  # num_rounds_total omitted -> auto = train.num_rounds = 1000
+  look_ahead: false
+
+federated:
+  num_clients: 4
+  topology: ring
+  consensus_mode: weight_avg
+  local_steps: 1
+
+train:
+  num_rounds: 1000
+  eval_every: 100
+  log_every: 20
+  eval_batches: 20

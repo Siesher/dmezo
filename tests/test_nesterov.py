@@ -195,7 +195,9 @@ class TestNesterovLookaheadStep:
         snapshot = {n: p.data.clone() for n, p in m2.named_parameters()}
         cfg = MeZOConfig(lr=1e-3, eps=1e-3)
         batch = {"x": torch.zeros(1)}
-        nesterov_lookahead_step(m2, state2, batch, _quadratic_loss, cfg, rng=np.random.default_rng(7))
+        nesterov_lookahead_step(
+            m2, state2, batch, _quadratic_loss, cfg, rng=np.random.default_rng(7)
+        )
 
         # After the step: params should equal theta_orig - lr * v_new for some v_new.
         # If rollback was broken, params would have an extra +beta*v_orig shift.
@@ -204,9 +206,7 @@ class TestNesterovLookaheadStep:
         for name, param in m2.named_parameters():
             delta = (param.data - snapshot[name]).abs().max().item()
             # lr=1e-3, rho~O(1), |z|~O(1), so |delta| ~ lr * O(1) = 1e-3 magnitude or smaller
-            assert delta < 0.1, (
-                f"{name}: delta={delta:.4f} is too large; rollback likely failed"
-            )
+            assert delta < 0.1, f"{name}: delta={delta:.4f} is too large; rollback likely failed"
 
     def test_returns_seed_rho_loss_triple(self):
         """Function signature: returns (seed, rho, loss_plus) like mezo_step."""
@@ -239,3 +239,69 @@ class TestNesterovLookaheadStep:
         )
         n_trainable = sum(1 for p in model.parameters() if p.requires_grad)
         assert len(state.velocities) == n_trainable
+
+
+# ---------------------------------------------------------------------------
+# β-schedule: linear decay from beta to beta_end over num_rounds_total rounds
+# ---------------------------------------------------------------------------
+
+
+class TestBetaSchedule:
+    def test_constant_when_schedule_unset(self):
+        """When beta_end/num_rounds_total are None, update_schedule is a no-op."""
+        state = NesterovState(beta=0.9)
+        assert state.beta == 0.9
+        state.update_schedule(round_idx=0)
+        assert state.beta == 0.9
+        state.update_schedule(round_idx=500)
+        assert state.beta == 0.9
+        state.update_schedule(round_idx=10_000)
+        assert state.beta == 0.9
+
+    def test_linear_decay_at_endpoints(self):
+        """beta at round 0 = beta_start; beta at round total-1 = beta_end."""
+        state = NesterovState(beta=0.9, beta_end=0.0, num_rounds_total=1000)
+        state.update_schedule(round_idx=0)
+        assert abs(state.beta - 0.9) < 1e-9
+        state.update_schedule(round_idx=999)
+        assert abs(state.beta - 0.0) < 1e-9
+
+    def test_linear_decay_at_midpoint(self):
+        """At round_idx = (total-1)/2 (linear progress 0.5), beta = midpoint of [start, end]."""
+        state = NesterovState(beta=0.9, beta_end=0.1, num_rounds_total=1001)
+        state.update_schedule(round_idx=500)
+        expected = 0.5  # midpoint of (0.9, 0.1)
+        assert abs(state.beta - expected) < 1e-9
+
+    def test_schedule_clamps_past_endpoint(self):
+        """round_idx > num_rounds_total clamps to beta_end (no overshoot)."""
+        state = NesterovState(beta=0.9, beta_end=0.0, num_rounds_total=100)
+        state.update_schedule(round_idx=500)
+        assert abs(state.beta - 0.0) < 1e-9
+
+    def test_schedule_resets_to_start_correctly(self):
+        """Multiple update_schedule calls reproduce the curve from the original start."""
+        state = NesterovState(beta=0.9, beta_end=0.0, num_rounds_total=1000)
+        state.update_schedule(round_idx=500)
+        # progress 500/999 ≈ 0.5005; beta ≈ 0.9 + 0.5005 * (0.0 - 0.9) ≈ 0.4495
+        beta_at_500 = state.beta
+        state.update_schedule(round_idx=0)
+        assert abs(state.beta - 0.9) < 1e-9, (
+            "schedule must reset deterministically; got %f after going back to 0" % state.beta
+        )
+        state.update_schedule(round_idx=500)
+        assert abs(state.beta - beta_at_500) < 1e-9, "schedule should be deterministic in round_idx"
+
+    def test_ascending_schedule_also_works(self):
+        """If beta_end > beta_start (warmup-up), schedule should increase."""
+        state = NesterovState(beta=0.0, beta_end=0.9, num_rounds_total=100)
+        state.update_schedule(round_idx=0)
+        assert abs(state.beta - 0.0) < 1e-9
+        state.update_schedule(round_idx=99)
+        assert abs(state.beta - 0.9) < 1e-9
+
+    def test_negative_round_idx_clamps_to_start(self):
+        """Round indices below 0 should not produce out-of-range beta."""
+        state = NesterovState(beta=0.9, beta_end=0.0, num_rounds_total=1000)
+        state.update_schedule(round_idx=-10)
+        assert abs(state.beta - 0.9) < 1e-9
