@@ -1,0 +1,49 @@
+# Day 6: Nesterov-MeZO ablation on the worst Day 5 cell (beta=0.5 variant).
+# Setup mirrors the beta=0.9 sibling config; only beta differs.
+#
+# Rationale for beta=0.5: a lower momentum coefficient gives an intermediate
+# point on the beta -> 0 (vanilla MeZO) -> beta -> 1 (full momentum) sweep.
+# With ZO-style updates (very noisy projected_grad) high beta can amplify
+# noise. beta=0.5 should be a safer trade-off; if it beats beta=0.9 that's
+# evidence that the noise-amplification concern is real.
+
+experiment_name: dmezo_federated_day6
+seed: 42
+output_dir: experiments/05_dmezo_4c_ring_dir05_qwen3_5_4b_base_sst2_nest05
+
+model:
+  name: Qwen/Qwen3.5-4B-Base
+  dtype: bfloat16
+  flash_attention: false
+
+data:
+  task: sst2
+  batch_size: 8
+  max_length: 256
+  num_train_examples: 2000
+  num_eval_examples: 200
+  partition_mode: dirichlet
+  partition_kwargs:
+    alpha: 0.5
+
+mezo:
+  lr: 3.0e-7
+  eps: 1.0e-3
+  weight_decay: 0.0
+
+nesterov:
+  enabled: true
+  beta: 0.5
+  look_ahead: false
+
+federated:
+  num_clients: 4
+  topology: ring
+  consensus_mode: weight_avg
+  local_steps: 1
+
+train:
+  num_rounds: 1000
+  eval_every: 100
+  log_every: 20
+  eval_batches: 20

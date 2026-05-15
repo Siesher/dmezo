@@ -1,0 +1,59 @@
+# Day 6: Nesterov-MeZO ablation on the worst Day 5 cell.
+# Setup: ring(4) + Dirichlet(alpha=0.5) — the highest-stress cell from the
+# Day 5 grid (slow mixing rho=0.333 + label-skewed partition).
+#
+# Nesterov:
+#   beta=0.9 (heavy-ball form, standard momentum coefficient).
+#   look_ahead=False — heavy-ball is the simpler variant and gives a clean
+#   ablation against vanilla D-MeZO; we can add look_ahead=True in Day 7 if
+#   needed for a 4-point ablation.
+#
+# Control = Day 5 cell 4 (configs/dmezo_4c_ring_dir05_qwen3_5_4b_base_sst2.yaml,
+# nesterov.enabled=false, seed=42, final=0.1381). Same seed -> bit-exact same
+# data partition, MeZO perturbations, and init — only nesterov differs.
+#
+# Hypothesis (D-MeZO-N spec, docs/03-algorithm-spec.md): on heterogeneous
+# partitions with slow consensus mixing, Nesterov momentum reduces client drift
+# variance and gives ~5-15% improvement on final loss. Falsifiable: if
+# final >= 0.1381 we fail to reject H0 (no effect).
+
+experiment_name: dmezo_federated_day6
+seed: 42
+output_dir: experiments/05_dmezo_4c_ring_dir05_qwen3_5_4b_base_sst2_nest09
+
+model:
+  name: Qwen/Qwen3.5-4B-Base
+  dtype: bfloat16
+  flash_attention: false
+
+data:
+  task: sst2
+  batch_size: 8
+  max_length: 256
+  num_train_examples: 2000
+  num_eval_examples: 200
+  partition_mode: dirichlet
+  partition_kwargs:
+    alpha: 0.5
+
+mezo:
+  lr: 3.0e-7
+  eps: 1.0e-3
+  weight_decay: 0.0
+
+nesterov:
+  enabled: true
+  beta: 0.9
+  look_ahead: false   # heavy-ball form
+
+federated:
+  num_clients: 4
+  topology: ring
+  consensus_mode: weight_avg   # MUST be weight_avg with Nesterov; update_share is unsupported
+  local_steps: 1
+
+train:
+  num_rounds: 1000
+  eval_every: 100
+  log_every: 20
+  eval_batches: 20
