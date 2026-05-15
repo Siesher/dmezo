@@ -28,7 +28,11 @@ import torch
 # Allow running as a script from project root.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from dmezo.data.superglue import build_loader_for_task, causal_lm_loss  # noqa: E402
+from dmezo.data.superglue import (  # noqa: E402, F401
+    build_loader_for_task,
+    causal_lm_loss,
+    evaluate_classification_accuracy,
+)
 from dmezo.mezo.step import MeZOConfig, mezo_step, mezo_update  # noqa: E402
 from dmezo.models.loader import load_causal_lm  # noqa: E402
 from dmezo.utils.config import load_yaml_config  # noqa: E402
@@ -55,6 +59,12 @@ def parse_args() -> argparse.Namespace:
         type=str,
         default=None,
         help="MLflow run name (default: auto from config)",
+    )
+    p.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Override cfg['seed']. Enables multi-seed runs from one config.",
     )
     return p.parse_args()
 
@@ -87,6 +97,8 @@ def evaluate_loss(model, dataloader, max_batches: int = 20) -> float:
 def main() -> None:
     args = parse_args()
     cfg = load_yaml_config(args.config)
+    if args.seed is not None:
+        cfg["seed"] = int(args.seed)
     logger = setup_logger("dmezo.sanity")
 
     output_dir = Path(args.output_dir or cfg["output_dir"])
@@ -191,13 +203,17 @@ def main() -> None:
         eval_every = int(cfg["train"]["eval_every"])
         log_every = int(cfg["train"].get("log_every", 20))
 
-        # ---- Initial eval
-        init_eval = evaluate_loss(
-            model, eval_loader, max_batches=cfg["train"].get("eval_batches", 20)
+        # ---- Initial eval (loss + accuracy)
+        eval_batches = cfg["train"].get("eval_batches", 20)
+        task = cfg["data"].get("task", "sst2")
+        init_eval = evaluate_loss(model, eval_loader, max_batches=eval_batches)
+        init_acc = evaluate_classification_accuracy(
+            model, eval_loader, task=task, max_batches=eval_batches
         )
-        logger.info(f"Initial eval loss: {init_eval:.4f}")
-        jsonl.log({"step": 0, "eval_loss": init_eval, "phase": "init"})
+        logger.info(f"Initial eval loss: {init_eval:.4f}  acc: {init_acc:.4f}")
+        jsonl.log({"step": 0, "eval_loss": init_eval, "eval_acc": init_acc, "phase": "init"})
         mlflow.log_metric("eval_loss", init_eval, step=0)
+        mlflow.log_metric("eval_acc", init_acc, step=0)
 
         # ---- Training loop
         rng = np.random.default_rng(int(cfg.get("seed", 0)))
@@ -243,18 +259,24 @@ def main() -> None:
                 jsonl.log({"step": step, "eval_loss": ev, "phase": "eval"})
                 mlflow.log_metric("eval_loss", ev, step=step)
 
-        # ---- Final eval
-        final_eval = evaluate_loss(
-            model, eval_loader, max_batches=cfg["train"].get("eval_batches", 20)
+        # ---- Final eval (loss + accuracy)
+        final_eval = evaluate_loss(model, eval_loader, max_batches=eval_batches)
+        final_acc = evaluate_classification_accuracy(
+            model, eval_loader, task=task, max_batches=eval_batches
         )
         final_train = float(np.mean(losses[-50:])) if losses else float("nan")
-        logger.info(f"FINAL: train_loss={final_train:.4f} eval_loss={final_eval:.4f}")
+        logger.info(
+            f"FINAL: train_loss={final_train:.4f} eval_loss={final_eval:.4f} "
+            f"eval_acc={final_acc:.4f} (init acc: {init_acc:.4f})"
+        )
         jsonl.log(
             {
                 "step": n_steps,
                 "final_train_loss": final_train,
                 "final_eval_loss": final_eval,
                 "init_eval_loss": init_eval,
+                "final_eval_acc": final_acc,
+                "init_eval_acc": init_acc,
                 "phase": "final",
             }
         )
@@ -277,7 +299,10 @@ def main() -> None:
                 "final_train_loss": final_train,
                 "final_eval_loss": final_eval,
                 "init_eval_loss": init_eval,
+                "final_eval_acc": final_acc,
+                "init_eval_acc": init_acc,
                 "eval_loss_drop_pct": drop * 100.0,
+                "eval_acc_gain_pct": (final_acc - init_acc) * 100.0,
             },
             step=n_steps,
         )

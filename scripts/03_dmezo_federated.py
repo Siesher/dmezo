@@ -33,6 +33,7 @@ from dmezo.data.superglue import (  # noqa: E402, F401
     build_loader_for_task,
     build_partitioned_loaders,
     causal_lm_loss,
+    evaluate_classification_accuracy,
 )
 from dmezo.federated.client import ClientState  # noqa: E402
 from dmezo.federated.simulator import SimulatorConfig, run_simulation  # noqa: E402
@@ -50,6 +51,12 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--output-dir", type=str, default=None)
     p.add_argument("--mlflow-uri", type=str, default=None)
     p.add_argument("--run-name", type=str, default=None)
+    p.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Override cfg['seed']. Enables multi-seed runs from one config.",
+    )
     return p.parse_args()
 
 
@@ -87,6 +94,10 @@ def _build_topology(name: str, n: int):
 def main() -> None:
     args = parse_args()
     cfg = load_yaml_config(args.config)
+    if args.seed is not None:
+        # CLI seed overrides the config (used for multi-seed runs without
+        # creating one config file per seed).
+        cfg["seed"] = int(args.seed)
     logger = setup_logger("dmezo.federated")
 
     output_dir = Path(args.output_dir or cfg["output_dir"])
@@ -257,17 +268,33 @@ def main() -> None:
 
         # ---- Initial eval (client 0 — all clients have identical init)
         eval_batches = cfg["train"].get("eval_batches", 20)
+        # Accuracy is expensive (2 forwards per example × all eval examples), so by
+        # default we only compute it at init and final. eval_every_acc controls how
+        # often during training; default = same as eval_every (i.e. every eval).
+        eval_acc_every = int(
+            cfg["train"].get("eval_acc_every", cfg["train"].get("eval_every", 100))
+        )
         init_eval = evaluate_loss(clients[0].model, eval_loader, max_batches=eval_batches)
-        logger.info(f"Initial eval loss: {init_eval:.4f}")
-        jsonl.log({"round": 0, "eval_loss": init_eval, "phase": "init"})
+        init_acc = evaluate_classification_accuracy(
+            clients[0].model, eval_loader, task=task, max_batches=eval_batches
+        )
+        logger.info(f"Initial eval loss: {init_eval:.4f}  acc: {init_acc:.4f}")
+        jsonl.log({"round": 0, "eval_loss": init_eval, "eval_acc": init_acc, "phase": "init"})
         mlflow.log_metric("eval_loss", init_eval, step=0)
+        mlflow.log_metric("eval_acc", init_acc, step=0)
 
         # ---- Callbacks for simulator
         t0 = time.time()
 
         def eval_fn(model, rnd):
             ev = evaluate_loss(model, eval_loader, max_batches=eval_batches)
-            return {"loss": ev}
+            out = {"loss": ev}
+            if (rnd + 1) % eval_acc_every == 0:
+                acc = evaluate_classification_accuracy(
+                    model, eval_loader, task=task, max_batches=eval_batches
+                )
+                out["acc"] = acc
+            return out
 
         def round_logger(round_log):
             elapsed = time.time() - t0
@@ -275,12 +302,15 @@ def main() -> None:
             mean_loss = round_log.get("mean_local_loss", float("nan"))
             mean_rho = round_log.get("mean_projected_grad", float("nan"))
             eval_loss = round_log.get("eval_loss")
+            eval_acc = round_log.get("eval_acc")
             msg = (
                 f"round={r + 1}/{cfg['train']['num_rounds']} "
                 f"local_loss={mean_loss:.4f} rho={mean_rho:+.4f} elapsed={elapsed:.1f}s"
             )
             if eval_loss is not None:
                 msg += f"  eval={eval_loss:.4f}"
+            if eval_acc is not None:
+                msg += f"  acc={eval_acc:.4f}"
             logger.info(msg)
             entry = {
                 "round": r + 1,
@@ -291,6 +321,9 @@ def main() -> None:
             if eval_loss is not None:
                 entry["eval_loss"] = eval_loss
                 mlflow.log_metric("eval_loss", eval_loss, step=r + 1)
+            if eval_acc is not None:
+                entry["eval_acc"] = eval_acc
+                mlflow.log_metric("eval_acc", eval_acc, step=r + 1)
             jsonl.log(entry)
             mlflow.log_metrics(
                 {
@@ -323,7 +356,12 @@ def main() -> None:
 
         # ---- Final eval
         final_eval = evaluate_loss(clients[0].model, eval_loader, max_batches=eval_batches)
-        logger.info(f"FINAL eval_loss (client 0): {final_eval:.4f}")
+        final_acc = evaluate_classification_accuracy(
+            clients[0].model, eval_loader, task=task, max_batches=eval_batches
+        )
+        logger.info(
+            f"FINAL eval_loss (client 0): {final_eval:.4f}  acc: {final_acc:.4f} (init acc: {init_acc:.4f})"
+        )
         drop = (init_eval - final_eval) / max(init_eval, 1e-8)
         verdict = "PASS" if drop > 0.10 else "FAIL"
         if verdict == "PASS":
@@ -338,6 +376,8 @@ def main() -> None:
                 "round": sim_cfg.num_rounds,
                 "final_eval_loss": final_eval,
                 "init_eval_loss": init_eval,
+                "final_eval_acc": final_acc,
+                "init_eval_acc": init_acc,
                 "phase": "final",
             }
         )
@@ -345,7 +385,10 @@ def main() -> None:
             {
                 "final_eval_loss": final_eval,
                 "init_eval_loss": init_eval,
+                "final_eval_acc": final_acc,
+                "init_eval_acc": init_acc,
                 "eval_loss_drop_pct": drop * 100.0,
+                "eval_acc_gain_pct": (final_acc - init_acc) * 100.0,
             },
             step=sim_cfg.num_rounds,
         )

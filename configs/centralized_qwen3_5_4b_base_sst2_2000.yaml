@@ -1,0 +1,39 @@
+# Day 7: centralized MeZO baseline on Qwen3.5-4B-Base / SST-2 / 2000 examples.
+# Matches Day 5 federated setup minus the federation:
+#   - same model, same task, same train pool size (2000 = 4 clients * 500)
+#   - same num_steps (= num_rounds), same lr, same eps
+#   - same eval/log cadence
+#
+# Closes the "is federated really comparable to centralized?" claim by providing
+# a clean apples-to-apples reference point. Without this, Day 5 grid is compared
+# against Day 4 centralized (Qwen3-4B, different model + smaller train pool).
+#
+# Expected result: drop ~96% (matching Qwen3.5 sanity from Day 2, ~94.7% on
+# 1000 examples — should be slightly better with 2x more data).
+
+experiment_name: dmezo_centralized_baseline_day7
+seed: 42
+output_dir: experiments/06_centralized_qwen3_5_4b_base_sst2_2000
+
+model:
+  name: Qwen/Qwen3.5-4B-Base
+  dtype: bfloat16
+  flash_attention: false
+
+data:
+  task: sst2
+  batch_size: 8
+  max_length: 256
+  num_train_examples: 2000
+  num_eval_examples: 200
+
+mezo:
+  lr: 3.0e-7
+  eps: 1.0e-3
+  weight_decay: 0.0
+
+train:
+  steps: 1000
+  eval_every: 100
+  log_every: 20
+  eval_batches: 20

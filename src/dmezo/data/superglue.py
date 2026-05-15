@@ -219,6 +219,13 @@ TASK_LOADERS = {
     "boolq": build_boolq_loader,
 }
 
+# Task -> label-word dict, used by evaluate_classification_accuracy to score
+# each candidate suffix against the gold label.
+TASK_LABEL_WORDS = {
+    "sst2": SST2_LABEL_WORDS,
+    "boolq": BOOLQ_LABEL_WORDS,
+}
+
 # Task -> (Dataset class, label column name) for partitioned-loader factory.
 TASK_DATASETS = {
     "sst2": (_SST2Dataset, "label"),
@@ -370,3 +377,126 @@ def build_partitioned_loaders(
             )
         )
     return loaders
+
+
+@torch.inference_mode()
+def evaluate_classification_accuracy(
+    model,
+    dataloader,
+    task: str,
+    max_batches: int = 20,
+) -> float:
+    """Score each example by per-suffix loss and pick the lower-loss class.
+
+    For prompt-completion framing (Malladi 2023): for each example, we score
+    every candidate label suffix by running the model forward with that suffix
+    appended and measuring the loss on the suffix tokens. The prediction is
+    ``argmin_label loss``; we count it correct if it matches the gold label.
+
+    The dataloader is expected to yield ``input_ids``, ``attention_mask``,
+    ``labels`` (with -100 on prompt tokens and real ids on suffix tokens), and
+    the dataset must expose a ``data`` attribute referring to the underlying HF
+    dataset so we can recover the raw gold label and prompt text.
+
+    Args:
+        model: HF model. Must be in eval mode and accept the dataloader's batch
+            dict format (input_ids, attention_mask, labels).
+        dataloader: DataLoader over a ``_SST2Dataset`` / ``_BoolQDataset``.
+        task: Task name (``"sst2"`` or ``"boolq"``).
+        max_batches: Stop after this many batches (matches evaluate_loss
+            convention so accuracy and loss are computed over the same pool).
+
+    Returns:
+        Float in [0.0, 1.0] — fraction correct. Returns 0.0 on an empty loader.
+
+    Raises:
+        ValueError: On unknown ``task``.
+    """
+    if task not in TASK_LABEL_WORDS:
+        raise ValueError(f"Unknown task {task!r}. Supported: {sorted(TASK_LABEL_WORDS)}")
+
+    label_words = TASK_LABEL_WORDS[task]
+    classes = sorted(label_words.keys())
+    # Cache: per-class tokenized suffix ids (single token most of the time).
+    underlying = dataloader.dataset
+    tokenizer = underlying.tokenizer
+    max_length = underlying.max_length
+    raw = underlying.data
+
+    label_word_first_token = {}
+    for cls, word in label_words.items():
+        ids = tokenizer.encode(word, add_special_tokens=False)
+        label_word_first_token[cls] = ids[0] if ids else None
+
+    n_correct = 0
+    n_total = 0
+    batches_seen = 0
+
+    was_training = model.training
+    model.eval()
+    try:
+        # We need access to raw rows to score each candidate suffix. Iterate
+        # the dataloader to respect max_batches budgeting, but rebuild each
+        # example's candidate forms on the fly.
+        cursor = 0
+        for batch in dataloader:
+            if batches_seen >= max_batches:
+                break
+            bs = batch["input_ids"].size(0)
+            # For each example in the batch, score every candidate suffix and
+            # pick the lowest-loss class.
+            for i in range(bs):
+                idx = cursor + i
+                if idx >= len(raw):
+                    break
+                row = raw[idx]
+                gold_label = int(row["label"])
+
+                # Build the prompt (no suffix) so we can append each candidate.
+                if task == "sst2":
+                    prompt = format_sst2_example(row["sentence"], label=None)
+                elif task == "boolq":
+                    prompt = format_boolq_example(row["passage"], row["question"], label=None)
+                else:  # pragma: no cover — guarded above
+                    raise ValueError(f"Unknown task {task!r}")
+
+                best_cls = classes[0]
+                best_loss = float("inf")
+                for cls in classes:
+                    candidate = prompt + label_words[cls]
+                    full_ids = tokenizer(
+                        candidate,
+                        max_length=max_length,
+                        truncation=True,
+                        return_tensors="pt",
+                    ).input_ids
+                    prompt_ids = tokenizer(
+                        prompt,
+                        max_length=max_length,
+                        truncation=True,
+                        return_tensors="pt",
+                    ).input_ids
+                    labels = full_ids.clone()
+                    labels[:, : prompt_ids.size(1)] = -100
+                    attn = torch.ones_like(full_ids)
+                    device = next(model.parameters()).device
+                    out = model(
+                        input_ids=full_ids.to(device),
+                        attention_mask=attn.to(device),
+                        labels=labels.to(device),
+                    )
+                    loss_val = float(out.loss.item())
+                    if loss_val < best_loss:
+                        best_loss = loss_val
+                        best_cls = cls
+
+                if best_cls == gold_label:
+                    n_correct += 1
+                n_total += 1
+            cursor += bs
+            batches_seen += 1
+    finally:
+        if was_training:
+            model.train()
+
+    return n_correct / n_total if n_total > 0 else 0.0
