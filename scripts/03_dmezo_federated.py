@@ -29,8 +29,9 @@ import torch
 # Allow running as a script from project root.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from dmezo.data.superglue import (  # noqa: E402
+from dmezo.data.superglue import (  # noqa: E402, F401
     build_loader_for_task,
+    build_partitioned_loaders,
     causal_lm_loss,
 )
 from dmezo.federated.client import ClientState  # noqa: E402
