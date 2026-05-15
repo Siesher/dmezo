@@ -1,6 +1,6 @@
 # D-MeZO-N: Decentralized Federated MeZO с Nesterov-ускорением
 
-**Status (2026-05-15):** Week 1 эксперименты завершены. Спека выполнена включая accelerated variant (R1b). Multi-seed rigor + theory — в work.
+**Status (2026-05-15):** Week 1 эксперименты завершены. Спека формально выполнена: empirical 9/9, mathematical 9/9 в **convex case** (Theorem 1, `docs/04-theory.md`), non-convex roadmap отделён в `04-theory-template.md`. Multi-seed rigor — Phase 3 в Colab.
 
 ---
 
@@ -168,7 +168,8 @@ Three mechanistic findings:
 | **C1** | First federated MeZO on hybrid linear-attention LLM (Qwen3.5-4B-Base) | strong | repeat on Mamba/RWKV, scale to 8B |
 | **C2** | D-MeZO robust to extreme non-IID (Dir(0.5) tax <13%) | strong, awaiting multi-seed CI | mechanism: ZO-noise vs uniform-mixing hypothesis |
 | **C3** | Decentralized topology cost negligible at n=4 (ring ≈ complete) | medium (seed=42 single shot) | multi-seed CI; scale to larger n |
-| **C4** | D-MeZO-**N**: phase diagram of Nesterov variants on ZO + practical recipe (ρ-clip C=50 + β-decay) yielding 3× early-stage speedup | strong, mechanism explained | β-schedule fully validated; multi-direction MeZO (Spall 1992) |
+| **C4** | D-MeZO-**N**: phase diagram of Nesterov variants on ZO + practical recipe (ρ-clip C=50 + β-decay) yielding 3× early-stage speedup; R1d beats vanilla by 6.5% with monotonic descent | strong, mechanism explained | β-schedule fully validated; multi-direction MeZO (Spall 1992) |
+| **C5** | **Theorem 1 (D-MeZO-N convergence, convex case)** — formal bound combining Malladi MeZO variance, Koloskova consensus error, and Polyak heavy-ball with ρ-clipping. 4 predictions match empirical findings (federated speedup, β=0.9 unclipped divergence, R1b late drift, R1d monotonic descent). | proven convex; non-convex roadmap in `04-theory-template.md` | extend to non-convex PL via Hessian-low-rank argument |
 
 ---
 
@@ -180,10 +181,13 @@ Three mechanistic findings:
 - Scale-up: только до 4 клиентов и Qwen3-4B/3.5-4B class. Реальный federated deployment был бы 100+ клиентов.
 - No comparison vs published federated MeZO baselines (FedKSeed, Ferret) — integration work.
 
-**Theory:**
-- Формальный convergence rate D-MeZO-N не выведен. Кандидат: combine Koloskova 2020 Theorem 2 (decentralized SGD rate с ρ(W) и data heterogeneity ζ²) с Princeton MeZO bound (Theorem 3 Malladi 2023) с поправкой на momentum + clipping. Должен дать гибридный rate O(1/T) + topology-correction + ZO-variance term + variance-reduction factor (1/(1-β²)) bound by clipping ratio.
-- C2 hypothesis testing (uniform-mixing vs ZO-noise-dominance) требует ablation против size-weighted aggregation.
-- ρ-clipping влияние на convergence bound — открытая теоретическая задача (clipping vs unbiased estimator tradeoff).
+**Theory (status 2026-05-15):**
+- ✅ **Theorem 1 (convex case) proven** в `docs/04-theory.md`. Bound:
+  $\mathbb E[\mathcal L(\bar\theta_T) - \mathcal L^\star] \le \tilde O\!\big(\sqrt{Lr(H)\Delta_0/(nT)}\big) + \tilde O\!\big(\rho^2 C^2 r(H)/((1-\bar\beta)^2 T)\big) + O(\epsilon^2 L^2 r(H))$.
+  Combines Malladi MeZO ($r(H)$-bound), Koloskova D-SGD (consensus error), Polyak heavy-ball (momentum) и наш ρ-clipping (Lemma 2). 4 predictions match эмпирику.
+- ⚠️ **Non-convex case** — теорема не доказана. Hessian-low-rank PL setting (A2 из `03-algorithm-spec.md`) предположительно tractable, roadmap в `04-theory-template.md` Sections 3-4. ~2-3 недели careful work для полного proof.
+- ⚠️ **Look-ahead variant** — bound не выведен; эмпирически диверджит (dual-channel noise pathway).
+- C2 hypothesis testing (uniform-mixing vs ZO-noise-dominance) требует ablation против size-weighted aggregation (separate from main theorem).
 
 **Algorithmic:**
 - C4 показал acceleration **с** ρ-clipping. Multi-direction MeZO (averaging over K random directions) — natural next step для дальнейшего variance reduction (variance ÷ √K) и более стабильного momentum.
