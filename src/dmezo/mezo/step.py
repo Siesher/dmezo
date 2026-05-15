@@ -17,8 +17,8 @@ princeton-nlp/MeZO `large_models/trainer.py::zo_step` and `::zo_update`.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable, List, Tuple
 
 import numpy as np
 import torch
@@ -39,15 +39,23 @@ class MeZOConfig:
             and non-(layer-)norm parameters, matching Princeton reference.
         seed_rng: Optional seed for the seed-generator itself (controls the
             sequence of per-step seeds across the run).
+        rho_clip: Optional symmetric clip threshold on the projected gradient
+            ρ_t. If set, the returned ρ_t is clipped to ``[-rho_clip, +rho_clip]``
+            before further processing (downstream update + Nesterov velocity).
+            Motivation: variance-reduction rescue for Nesterov-MeZO — Day 6
+            heavy-ball β=0.9 diverged after a ρ spike to +905; clipping bounds
+            the worst-case noise contribution to the velocity buffer per round.
+            Must be positive when set; ``None`` (default) disables clipping.
     """
 
     lr: float = 1e-6
     eps: float = 1e-3
     weight_decay: float = 0.0
     seed_rng: int | None = None
+    rho_clip: float | None = None
 
 
-def _collect_optim_params(model: nn.Module) -> List[Tuple[str, nn.Parameter]]:
+def _collect_optim_params(model: nn.Module) -> list[tuple[str, nn.Parameter]]:
     """Collect (name, param) for all parameters with requires_grad=True."""
     return [(n, p) for n, p in model.named_parameters() if p.requires_grad]
 
@@ -82,7 +90,7 @@ def mezo_step(
     config: MeZOConfig,
     *,
     rng: np.random.Generator | None = None,
-) -> Tuple[int, float, float]:
+) -> tuple[int, float, float]:
     """Run one MeZO gradient-estimation step (no parameter update yet).
 
     Args:
@@ -104,6 +112,11 @@ def mezo_step(
         The caller is responsible for invoking ``mezo_update`` with the returned
         seed and projected_grad to actually move theta.
     """
+    if config.rho_clip is not None and config.rho_clip <= 0:
+        raise ValueError(
+            f"rho_clip must be positive or None; got {config.rho_clip}. "
+            "Use None to disable clipping."
+        )
     if rng is None:
         seed = int(np.random.randint(0, 2**31 - 1))
     else:
@@ -123,6 +136,9 @@ def mezo_step(
     perturb_parameters(named, seed=seed, scaling_factor=+1.0, eps=config.eps)
 
     projected_grad = (loss_plus - loss_minus) / (2.0 * config.eps)
+    if config.rho_clip is not None:
+        # Symmetric clipping. Preserves sign; caps |ρ| at the threshold.
+        projected_grad = max(-config.rho_clip, min(config.rho_clip, projected_grad))
     return seed, projected_grad, loss_plus
 
 

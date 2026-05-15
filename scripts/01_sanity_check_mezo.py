@@ -194,10 +194,13 @@ def main() -> None:
         )
 
         # ---- MeZO config
+        rho_clip_raw = cfg["mezo"].get("rho_clip", None)
+        rho_clip = float(rho_clip_raw) if rho_clip_raw is not None else None
         mezo_cfg = MeZOConfig(
             lr=float(cfg["mezo"]["lr"]),
             eps=float(cfg["mezo"]["eps"]),
             weight_decay=float(cfg["mezo"].get("weight_decay", 0.0)),
+            rho_clip=rho_clip,
         )
         n_steps = int(cfg["train"]["steps"])
         eval_every = int(cfg["train"]["eval_every"])

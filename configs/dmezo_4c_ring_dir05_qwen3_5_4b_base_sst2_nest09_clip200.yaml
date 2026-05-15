@@ -1,0 +1,60 @@
+# R1 rescue: Nesterov-MeZO β=0.9 + ρ-clipping=200 on the worst Day 5 cell.
+# Same setup as dmezo_4c_ring_dir05_qwen3_5_4b_base_sst2_nest09.yaml (diverged
+# at round 140 due to noise-amplified momentum), but with the projected
+# gradient clipped to [-200, +200] before entering the velocity buffer.
+#
+# Threshold rationale: Day 6 pre-divergence rho values were in ±150 range;
+# the spike at R140 was +905 (the trigger for blow-up). C=200 catches the
+# spike while preserving normal-range signal. If R1 doesn't fully rescue,
+# tighter thresholds (C=100, C=50) are easy follow-ups.
+#
+# Hypothesis being tested: divergence was caused by the velocity buffer
+# accumulating unbounded ρ. Clipping ρ at the noise-amplification source
+# should bound the steady-state velocity norm and let β=0.9 converge.
+# Falsifiable: if this still diverges, the issue is deeper than per-step
+# variance — move to R2 (multi-direction MeZO).
+#
+# Same seed=42 as control (Day 5 cell 4 final=0.1381) — bit-exact identical
+# data partition, MeZO seeds, and init. Only ρ-clipping differs.
+
+experiment_name: dmezo_federated_day8_rescue
+seed: 42
+output_dir: experiments/07_dmezo_4c_ring_dir05_qwen3_5_4b_base_sst2_nest09_clip200
+
+model:
+  name: Qwen/Qwen3.5-4B-Base
+  dtype: bfloat16
+  flash_attention: false
+
+data:
+  task: sst2
+  batch_size: 8
+  max_length: 256
+  num_train_examples: 2000
+  num_eval_examples: 200
+  partition_mode: dirichlet
+  partition_kwargs:
+    alpha: 0.5
+
+mezo:
+  lr: 3.0e-7
+  eps: 1.0e-3
+  weight_decay: 0.0
+  rho_clip: 200.0   # the rescue knob
+
+nesterov:
+  enabled: true
+  beta: 0.9
+  look_ahead: false
+
+federated:
+  num_clients: 4
+  topology: ring
+  consensus_mode: weight_avg
+  local_steps: 1
+
+train:
+  num_rounds: 1000
+  eval_every: 100
+  log_every: 20
+  eval_batches: 20
