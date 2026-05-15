@@ -173,11 +173,13 @@ def main() -> None:
         max_len = cfg["data"].get("max_length", 256)
         n_train_total = cfg["data"].get("num_train_examples", 1000)
         n_eval = cfg["data"].get("num_eval_examples", 200)
-        per_client_train = n_train_total // n_clients
+        partition_mode = cfg["data"].get("partition_mode", "iid")
+        partition_kwargs = cfg["data"].get("partition_kwargs", {}) or {}
         base_seed = int(cfg.get("seed", 42))
 
         logger.info(
-            f"Building dataloaders for task={task!r}, {per_client_train} train examples per client..."
+            f"Building dataloaders for task={task!r}, partition={partition_mode!r} "
+            f"({n_train_total} train examples, {n_clients} clients)..."
         )
         eval_loader = build_loader_for_task(
             task,
@@ -188,19 +190,33 @@ def main() -> None:
             shuffle=False,
             num_examples=n_eval,
         )
-        client_loaders = []
-        for ci in range(n_clients):
-            loader = build_loader_for_task(
-                task,
-                tokenizer=tokenizer,
-                split="train",
-                batch_size=bs,
-                max_length=max_len,
-                shuffle=True,
-                num_examples=per_client_train,
-                seed=base_seed + ci * 1000,
-            )
-            client_loaders.append(loader)
+        client_loaders = build_partitioned_loaders(
+            task=task,
+            tokenizer=tokenizer,
+            n_clients=n_clients,
+            partition_mode=partition_mode,
+            partition_kwargs=partition_kwargs,
+            batch_size=bs,
+            max_length=max_len,
+            num_examples=n_train_total,
+            shuffle=True,
+            seed=base_seed,
+        )
+        # Log per-client partition stats — useful to confirm Dirichlet/label-skew
+        # asymmetry is actually present in the data, not just in the config flag.
+        for ci, loader in enumerate(client_loaders):
+            n = len(loader.dataset)
+            try:
+                labels = np.asarray(loader.dataset.data["label"])
+                if labels.size > 0:
+                    counts = np.bincount(labels)
+                    dist_str = ", ".join(f"c{j}={c}" for j, c in enumerate(counts))
+                else:
+                    dist_str = "empty"
+            except (KeyError, AttributeError):
+                dist_str = "n/a"
+            logger.info(f"  client {ci}: n={n}  label_dist=[{dist_str}]")
+            mlflow.log_metric(f"client_{ci}_train_size", float(n), step=0)
 
         # ---- MeZO config (shared across clients)
         mezo_cfg = MeZOConfig(

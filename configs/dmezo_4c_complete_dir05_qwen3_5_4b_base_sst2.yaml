@@ -1,0 +1,51 @@
+# Day 5: 4-client federated D-MeZO on Qwen3.5-4B-Base / SST-2.
+# Topology: complete graph (rho=0); Partition: Dirichlet(alpha=0.5) — mild non-IID.
+#
+# Goal: isolate the partition axis. Compared to the IID sibling
+# (dmezo_4c_complete_iid_*.yaml), this should show mild client drift but
+# weight_avg + complete topology compensates each round. Expected final loss
+# within +/-30% of the IID variant.
+#
+# alpha=0.5 follows Hsu et al. 2019 ("Measuring the Effects of Non-Identical
+# Data Distribution for Federated Visual Classification") as the standard
+# "mild heterogeneity" setting. We will likely add alpha=0.1 stress run in
+# Day 6 if Day 5 results encourage it.
+
+experiment_name: dmezo_federated_day5
+seed: 42
+output_dir: experiments/04_dmezo_4c_complete_dir05_qwen3_5_4b_base_sst2
+
+model:
+  name: Qwen/Qwen3.5-4B-Base
+  dtype: bfloat16
+  flash_attention: false
+
+data:
+  task: sst2
+  batch_size: 8
+  max_length: 256
+  num_train_examples: 2000
+  num_eval_examples: 200
+  partition_mode: dirichlet
+  partition_kwargs:
+    alpha: 0.5
+
+mezo:
+  lr: 3.0e-7
+  eps: 1.0e-3
+  weight_decay: 0.0
+
+nesterov:
+  enabled: false
+
+federated:
+  num_clients: 4
+  topology: complete
+  consensus_mode: weight_avg
+  local_steps: 1
+
+train:
+  num_rounds: 1000
+  eval_every: 100
+  log_every: 20
+  eval_batches: 20

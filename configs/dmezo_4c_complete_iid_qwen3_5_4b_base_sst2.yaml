@@ -1,0 +1,56 @@
+# Day 5: 4-client federated D-MeZO on Qwen3.5-4B-Base / SST-2.
+# Topology: complete graph (rho=0); Partition: IID disjoint chunks.
+#
+# Goal: extend Day 4 (2c complete IID, final=0.1793 on Qwen3-4B) to (a) 4
+# clients and (b) the hybrid linear-attention V-L architecture. With complete
+# graph + IID partition this is the easiest 4-client config — expected to
+# match centralized Qwen3.5-4B-Base (final ~0.075, drop 94.7%) within +/-20%.
+#
+# References for the experiment design:
+#   - McMahan et al. 2017 (FedAvg) for IID baseline conventions.
+#   - Koloskova et al. 2020 (Unified D-SGD) for topology/rho framing.
+#   - Hsu et al. 2019 for Dirichlet partition (used in sibling configs).
+#
+# Memory: 4 * Qwen3.5-4B bf16 (~10 GB each) = 40 GB weights; vision tower
+# frozen but still loaded; activations ~15-20 GB -> peak ~55-60 GB.
+# Comfortable on Blackwell 96 GB.
+
+experiment_name: dmezo_federated_day5
+seed: 42
+output_dir: experiments/04_dmezo_4c_complete_iid_qwen3_5_4b_base_sst2
+
+model:
+  name: Qwen/Qwen3.5-4B-Base
+  dtype: bfloat16
+  flash_attention: false   # Hybrid linear/full-attention; keep off for safety.
+
+data:
+  task: sst2
+  batch_size: 8
+  max_length: 256
+  num_train_examples: 2000     # 500 per client (matches Day 4 per-client budget)
+  num_eval_examples: 200
+  partition_mode: iid
+  partition_kwargs: {}
+
+mezo:
+  # Transferred from Day 4 (Qwen3-4B) — same task, same training regime.
+  # Centralized Qwen3.5-4B-Base also converged smoothly with this lr.
+  lr: 3.0e-7
+  eps: 1.0e-3
+  weight_decay: 0.0
+
+nesterov:
+  enabled: false   # Add in Day 7 ablation
+
+federated:
+  num_clients: 4
+  topology: complete    # rho = 0 (per-round exact averaging)
+  consensus_mode: weight_avg
+  local_steps: 1
+
+train:
+  num_rounds: 1000
+  eval_every: 100
+  log_every: 20
+  eval_batches: 20

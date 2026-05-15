@@ -1,0 +1,49 @@
+# Day 5: 4-client federated D-MeZO on Qwen3.5-4B-Base / SST-2.
+# Topology: ring graph (rho > 0); Partition: IID.
+#
+# Goal: isolate the topology axis. Ring(4) has spectral gap rho ~ 0.5 — only
+# 2 of 4 client pairs communicate each round, so information mixes slowly.
+# Per Koloskova et al. 2020 Theorem 2 the convergence rate degrades by a
+# factor of 1/(1-rho), so we expect this run to plateau slower than complete
+# but still reach a similar final loss (~+10-30%).
+#
+# This is the canonical "non-trivial topology" reference point used in most
+# decentralized SGD papers (Lian et al. 2017, Koloskova et al. 2019).
+
+experiment_name: dmezo_federated_day5
+seed: 42
+output_dir: experiments/04_dmezo_4c_ring_iid_qwen3_5_4b_base_sst2
+
+model:
+  name: Qwen/Qwen3.5-4B-Base
+  dtype: bfloat16
+  flash_attention: false
+
+data:
+  task: sst2
+  batch_size: 8
+  max_length: 256
+  num_train_examples: 2000
+  num_eval_examples: 200
+  partition_mode: iid
+  partition_kwargs: {}
+
+mezo:
+  lr: 3.0e-7
+  eps: 1.0e-3
+  weight_decay: 0.0
+
+nesterov:
+  enabled: false
+
+federated:
+  num_clients: 4
+  topology: ring           # rho ~ 0.5 for n=4 (slower mixing)
+  consensus_mode: weight_avg
+  local_steps: 1
+
+train:
+  num_rounds: 1000
+  eval_every: 100
+  log_every: 20
+  eval_batches: 20

@@ -1,0 +1,53 @@
+# Day 5: 4-client federated D-MeZO on Qwen3.5-4B-Base / SST-2.
+# Topology: ring (rho > 0); Partition: Dirichlet(alpha=0.5) — mild non-IID.
+#
+# Goal: WORST cell in the 2x2 grid (slow mixing + label skew). This is the
+# canonical stress test for decentralized FL — see Koloskova et al. 2020
+# Theorem 3 (impact of data heterogeneity zeta^2 + topology rho).
+#
+# If federated D-MeZO still converges here within centralized * 1.5, the
+# method survives the most realistic FL scenario. Failure modes to watch:
+# - Eval loss oscillates / does not decrease past ~0.5: client drift
+#   accumulates faster than ring consensus corrects it; would need either
+#   smaller lr, more local_steps=1 enforcement, or Nesterov.
+# - Per-client local loss diverges across clients: classic Dirichlet symptom,
+#   visible in the per-client `mean_local_loss` MLflow metric.
+
+experiment_name: dmezo_federated_day5
+seed: 42
+output_dir: experiments/04_dmezo_4c_ring_dir05_qwen3_5_4b_base_sst2
+
+model:
+  name: Qwen/Qwen3.5-4B-Base
+  dtype: bfloat16
+  flash_attention: false
+
+data:
+  task: sst2
+  batch_size: 8
+  max_length: 256
+  num_train_examples: 2000
+  num_eval_examples: 200
+  partition_mode: dirichlet
+  partition_kwargs:
+    alpha: 0.5
+
+mezo:
+  lr: 3.0e-7
+  eps: 1.0e-3
+  weight_decay: 0.0
+
+nesterov:
+  enabled: false
+
+federated:
+  num_clients: 4
+  topology: ring
+  consensus_mode: weight_avg
+  local_steps: 1
+
+train:
+  num_rounds: 1000
+  eval_every: 100
+  log_every: 20
+  eval_batches: 20
