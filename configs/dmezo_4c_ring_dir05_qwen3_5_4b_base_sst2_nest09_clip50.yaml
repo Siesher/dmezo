@@ -1,0 +1,64 @@
+# R1b: Tighter ρ-clipping rescue for Nesterov-MeZO (C=50, was 200 in R1).
+#
+# Context: R1 with C=200 prevented the instant R140 blowup but slow-diverged
+# starting around R400-R500 (eval 0.29 → 0.60 → 1.08 → 2.96 by R700, accuracy
+# fell back to 0.519 = random). MLflow run for R1: 1b7ecc5ab6ee4c78b154277c1b45ca2d.
+#
+# Diagnosis: C=200 only caught outlier spikes (R140 +905 → +200), but the
+# normal ρ range (±100-150) bypassed clipping unchanged. The Nesterov velocity
+# buffer accumulated this sub-clip noise over 300+ rounds and eventually drove
+# theta out of the trained basin.
+#
+# R1b hypothesis: tighter clip (C=50) bounds the steady-state ρ enough that
+# velocity buffer norm stays bounded throughout training. Falsifiable: if R1b
+# also slow-diverges, the issue is not clip threshold but fundamental to
+# β=0.9 with single-direction MeZO — escalate to R1d (β-schedule) or R2
+# (multi-direction MeZO).
+#
+# Important positive finding from R1: at R100 (before drift),
+# eval_loss=0.2134 and acc=0.9250 beat the control by 36% on loss and 4 pp on
+# accuracy. Acceleration IS real; the question is whether we can sustain it.
+#
+# Same seed=42 as control + R1 for bit-exact ablation.
+
+experiment_name: dmezo_federated_day8_rescue
+seed: 42
+output_dir: experiments/07_dmezo_4c_ring_dir05_qwen3_5_4b_base_sst2_nest09_clip50
+
+model:
+  name: Qwen/Qwen3.5-4B-Base
+  dtype: bfloat16
+  flash_attention: false
+
+data:
+  task: sst2
+  batch_size: 8
+  max_length: 256
+  num_train_examples: 2000
+  num_eval_examples: 200
+  partition_mode: dirichlet
+  partition_kwargs:
+    alpha: 0.5
+
+mezo:
+  lr: 3.0e-7
+  eps: 1.0e-3
+  weight_decay: 0.0
+  rho_clip: 50.0   # 4× tighter than R1 (was 200); preserves normal-range signal up to ~50
+
+nesterov:
+  enabled: true
+  beta: 0.9
+  look_ahead: false
+
+federated:
+  num_clients: 4
+  topology: ring
+  consensus_mode: weight_avg
+  local_steps: 1
+
+train:
+  num_rounds: 1000
+  eval_every: 100
+  log_every: 20
+  eval_batches: 20
