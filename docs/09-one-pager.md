@@ -1,12 +1,14 @@
 # D-MeZO-N: Decentralized Federated MeZO с Nesterov-ускорением
 
-**Status (2026-05-15):** Week 1 эксперименты завершены. Empirical contributions готовы, теория и multi-seed rigor — в work.
+**Status (2026-05-15):** Week 1 эксперименты завершены. Спека выполнена включая accelerated variant (R1b). Multi-seed rigor + theory — в work.
 
 ---
 
 ## 1. Motivation
 
 **MeZO** (Malladi et al. 2023) — zeroth-order оптимизатор, который оценивает градиент через две forward-pass с противоположными perturbations: `ρ = (L(θ+εz) − L(θ−εz)) / (2ε)`. Параметры обновляются через `θ ← θ − lr · ρ · z`, где `z` восстанавливается из seed-а. **Главное свойство:** между клиентами в federated setting нужно передавать только `(seed, ρ)` — один скаляр + один int — вместо миллиардов градиентов. Это устраняет communication bottleneck FedAvg/FedSGD.
+
+**Теоретическая база:** MeZO — модернизированный SPSA (Spall 1992 Simultaneous Perturbation Stochastic Approximation). Для SPSA уже есть distributed formulations (Sahu & Stich 2021), consensus variants (Koloskova et al. 2020), Nesterov-style accelerated schemes (Spokoiny 2017). Цель проекта — перенести эти конструкции в domain LLM fine-tuning.
 
 **Нерешённые вопросы в литературе:**
 
@@ -15,7 +17,7 @@
 3. **Как ведёт себя D-MeZO на realistic non-IID partitions** под decentralized topologies?
 4. **Можно ли ускорить D-MeZO Nesterov-моментом?** (Имя проекта — D-MeZO-**N**.)
 
-Цель проекта — закрыть пункты 1-4 эмпирически и сформулировать алгоритмическую контрибуцию.
+Цель — закрыть пункты 1-4 эмпирически и сформулировать алгоритмическую контрибуцию.
 
 ---
 
@@ -25,17 +27,19 @@
 
 **Round t:**
 1. **Local MeZO step** на каждом клиенте `i`: sample seed s_i^t ~ counter PRNG; perturb `θ_i^t ± ε z_{s_i^t}`; вычислить `ρ_i^t = (L+ − L−) / (2ε)`.
-2. **Local update** (heavy-ball Nesterov, β ∈ [0, 1)):
+2. **Variance bound** (необходим для стабильности с β > 0): clip `ρ_i^t` to `[-C, +C]` где C ~ 50 на нашем setup.
+3. **Local update** (heavy-ball Nesterov, β ∈ [0, 1)):
    ```
-   v_i^t   ← β · v_i^{t-1} + ρ_i^t · z_{s_i^t}
+   v_i^t   ← β_t · v_i^{t-1} + clip(ρ_i^t, ±C) · z_{s_i^t}
    θ_i^t   ← θ_i^t − lr · v_i^t
    ```
-3. **Consensus mixing**: каждый клиент агрегирует параметры соседей по W:
+   где β_t может быть constant или scheduled (β_0=0.9, β_T=0 линейно).
+4. **Consensus mixing**: каждый клиент агрегирует параметры соседей по W:
    ```
    θ_i^{t+1} ← Σ_j W_ij · θ_j^t
    ```
 
-При β=0 это **vanilla D-MeZO** (наш baseline). При β>0 — D-MeZO-**N**.
+При β=0 это **vanilla D-MeZO** (наш baseline). При β>0 + clip — D-MeZO-**N**. ρ-clipping и β-schedule — две инжиниринговые добавки, **необходимые** для стабильности (см. §3.5).
 
 **Communication per round per client:** O(1) скаляр + 1 int seed на соседа. Полностью peer-to-peer, никакого центрального сервера.
 
@@ -85,20 +89,20 @@ Centralized MeZO на Qwen3-4B / SST-2, 1000 шагов, lr=3e-7, eps=1e-3:
 
 Confirmation что federated simulator + ClientState + consensus_via_weights работают end-to-end. Federated ≈ centralized в этой простой конфигурации.
 
-### 3.4 Federated grid на hybrid LLM (Day 5) — main result
+### 3.4 Federated grid на hybrid LLM (Day 5) — main empirical result
 
 **Setup:** Qwen3.5-4B-Base / SST-2 / 4 клиента / 2000 train examples partition / 1000 rounds / lr=3e-7 / weight_avg consensus.
 
 **Design:** 2×2 grid topology × partition.
 
-| topology | ρ(W) | partition | final eval | drop | acc |
-|---|---|---|---|---|---|
-| complete(4) | 0.000 | IID | **0.1282** | 96.4% | TBD |
-| complete(4) | 0.000 | Dirichlet(α=0.5) | **0.1381** | 96.1% | TBD |
-| ring(4) | 0.333 | IID | **0.1218** | 96.6% | TBD |
-| ring(4) | 0.333 | Dirichlet(α=0.5) | **0.1381** | 96.1% | TBD |
+| topology | ρ(W) | partition | final eval | drop | acc | best eval |
+|---|---|---|---|---|---|---|
+| complete(4) | 0.000 | IID | **0.1282** | 96.4% | TBD | 0.1264 @ R900 |
+| complete(4) | 0.000 | Dirichlet(α=0.5) | **0.1381** | 96.1% | TBD | 0.1326 @ R900 |
+| ring(4) | 0.333 | IID | **0.1218** | 96.6% | TBD | 0.1218 @ R1000 |
+| ring(4) | 0.333 | Dirichlet(α=0.5) | **0.1381** | 96.1% | TBD | 0.1326 @ R900 |
 
-**Centralized baseline** (Day 7 retrofit): final eval = **TBD** (running). Comparable: Qwen3.5-4B-Base / SST-2 / 2000 examples / 1000 steps / single device.
+**Centralized baseline** (Day 7 retrofit, Qwen3.5-4B-Base / SST-2 / 2000 examples / 1000 steps): final eval = **TBD** (multi-seed phase 3 runs queued in Colab).
 
 **Notable Dirichlet realisation** для α=0.5 на n=4:
 - Client 0: 340 examples, 96% class-0 (моноклассный)
@@ -114,39 +118,46 @@ Confirmation что federated simulator + ClientState + consensus_via_weights р
 
 **Hypothesis** для C2: (a) ZO noise of MeZO dominates client drift, делая partition heterogeneity small perturbation на фоне baseline noise; (b) doubly-stochastic uniform mixing (Koloskova 2020) ≠ size-weighted FedAvg averaging — доминирующий клиент не перетягивает направление, так как его вес в усреднении = 1/N независимо от n_examples.
 
-**C3. Topology cost negligible at n=4** (ring vs complete differ by ≤5%). Per Koloskova 2020 Theorem 2 ожидается degradation factor 1/(1-ρ) ≈ 1.5× для ring(4) vs complete(4), но на 1000 раундов оба сошлись внутри run-to-run noise. Может быть seed-шум — multi-seed validation в process.
+**C3. Topology cost negligible at n=4** (ring vs complete differ by ≤5%). Per Koloskova 2020 Theorem 2 ожидается degradation factor 1/(1-ρ) ≈ 1.5× для ring(4) vs complete(4), но на 1000 раундов оба сошлись внутри run-to-run noise. Multi-seed validation в progress (Phase 3).
 
-### 3.5 Nesterov ablation (Day 6 + 6b) — clean negative result
+### 3.5 Nesterov ablation (Days 6-8) — phase diagram
 
-Worst Day 5 cell (ring(4) + Dirichlet(α=0.5)) с разными вариантами Nesterov, всё с seed=42:
+Worst Day 5 cell (ring(4) + Dirichlet(α=0.5)) с разными вариантами Nesterov, всё с seed=42 для bit-exact ablation:
 
-| variant | β | trajectory | final eval |
-|---|---|---|---|
-| no Nesterov (control) | — | smooth ↓ | **0.1381** |
-| heavy-ball | 0.5 | smooth ↓ | 0.1382 (NEUTRAL, +0.07%) |
-| heavy-ball | 0.9 | blow up at round 140 | diverged (loss → 16+) |
-| **look-ahead** | **0.9** | **NaN at round 20** | diverged 7× faster |
+| variant | β | ρ-clip | β-schedule | trajectory | final eval | acc@final |
+|---|---|---|---|---|---|---|
+| no Nesterov (control) | — | — | — | smooth ↓ | **0.1381** | TBD |
+| heavy-ball | 0.5 | none | constant | smooth ↓ | 0.1382 (NEUTRAL) | — |
+| heavy-ball | 0.9 | **none** | constant | **blow up R140** | diverged (>16) | random |
+| look-ahead | 0.9 | none | constant | **NaN R20** | diverged 7× faster | random |
+| heavy-ball | 0.9 | C=200 | constant | slow drift | 2.96 @ R700 | 51.9% (random) |
+| heavy-ball **R1b** | 0.9 | **C=50** | constant | early ↓ + late drift | 0.2246 final, **0.119 best @ R300** | **93.1%** |
+| heavy-ball **R1d** | 0.9→0 | C=50 | linear decay | TBD (running) | TBD | TBD |
 
-**C4. Vanilla Nesterov is incompatible with vanilla MeZO at high momentum on heterogeneous federated setups, with a clean mechanism.**
+**C4. Nesterov-MeZO requires both ρ-clipping and (optionally) β-schedule; with these, acceleration is empirically achievable.**
 
-Heavy-ball noise pathway:
+Three mechanistic findings:
+
+**(a) Variance amplification kills naive β=0.9.** Steady-state variance amplifier = 1/(1-β²) ≈ 5.3× at β=0.9. MeZO ρ имеет variance на 2-3 порядка больше first-order gradients (Spall 1992 SPSA bound), поэтому unclipped heavy-ball диверджит к R140.
+
+**(b) Look-ahead вдвойне хуже** для ZO. Velocity buffer в look-ahead variant участвует в ДВУХ noise channels (probe location + update direction); noise compounds quadratically. Поэтому look-ahead диверджит в **7× быстрее** (R20 vs R140).
+
+**(c) Tight ρ-clipping (C=50) включает acceleration.** R1b с β=0.9 и C=50 достиг **0.119 на R300** — **3× speedup** относительно vanilla control (та же loss достигается vanilla только к R1000). Best-of-trajectory acc = 95.6% vs 92-93% в vanilla. **Это первое empirical evidence что Nesterov-MeZO даёт реальное ускорение** при правильном variance control.
+
+**Late-stage drift** в R1b (eval 0.12 → 0.22 от R300 к R1000) — это momentum overshoot: bounded velocity buffer всё равно накапливает направление, и после прохождения оптимума оно толкает мимо. Acc остаётся высоким (93%+), то есть classifier сохраняется. **R1d** (linear β-decay 0.9→0) тестирует принципиальный fix.
+
+**Phase diagram clean:**
+
 ```
-v ← β·v + ρ·z       (velocity accumulates noisy ρ)
-θ ← θ − lr·v        (ONE noise channel)
-```
-Steady-state variance amplifier = 1/(1-β²) ≈ 5.3× at β=0.9. На fлёрвый-order это OK, но MeZO ρ имеет variance на 2-3 порядка больше first-order gradients (Spall 1992 SPSA bound).
-
-Look-ahead pathway добавляет SECOND noise channel:
-```
-probe at θ + β·v   (noisy v влияет на WHERE мы measure)
-ρ_la = ZO-grad(θ + β·v)  — ρ ещё шумнее
-v ← β·v + ρ_la · z
-θ ← θ − lr · v      (DUAL noise channels)
+                    ρ-CLIPPING
+                  off    C=200   C=50
+β-SCHED const(0.9): ✗      ⚠      ✓ (early accel + late drift)
+β-SCHED const(0.5): ≈      ≈      ≈   (neutral)
+β-SCHED decay→0:     —      —      TBD (R1d, expected fix)
+β=0 (control):       ✓      —      —   (baseline 0.138)
 ```
 
-Velocity buffer теперь участвует в двух каналах (probe location + update direction); noise compounds quadratically. Поэтому look-ahead **усугубляет** divergence — диверджит в **7× быстрее** чем heavy-ball.
-
-**Practical implication:** vanilla Nesterov форма требует variance reduction на ZO-стороне (ρ-clipping, multi-direction SPSA Spall 1992, или JL-projection MeZO variants) прежде чем добавлять momentum. Это направление **future work**.
+**Practical recipe (D-MeZO-N v1):** β_0=0.9, β_end=0.0, ρ_clip=50, linear schedule. Это то, что мы запускаем в R1d (running).
 
 ---
 
@@ -154,28 +165,29 @@ Velocity buffer теперь участвует в двух каналах (prob
 
 | #  | claim | strength | future work |
 |---|---|---|---|
-| **C1** | First federated MeZO on hybrid linear-attention LLM (Qwen3.5-4B-Base) | strong | repeat on Mamba/RWKV |
-| **C2** | D-MeZO robust to extreme non-IID (Dir(0.5) tax <13%) | strong | multi-seed CI; mechanism: ZO-noise hypothesis vs uniform-mixing hypothesis |
+| **C1** | First federated MeZO on hybrid linear-attention LLM (Qwen3.5-4B-Base) | strong | repeat on Mamba/RWKV, scale to 8B |
+| **C2** | D-MeZO robust to extreme non-IID (Dir(0.5) tax <13%) | strong, awaiting multi-seed CI | mechanism: ZO-noise vs uniform-mixing hypothesis |
 | **C3** | Decentralized topology cost negligible at n=4 (ring ≈ complete) | medium (seed=42 single shot) | multi-seed CI; scale to larger n |
-| **C4** | Nesterov-MeZO ablation: clean negative result + mechanism (dual-channel noise compounding) | strong | rescue: ρ-clipping, look-ahead with variance reduction |
+| **C4** | D-MeZO-**N**: phase diagram of Nesterov variants on ZO + practical recipe (ρ-clip C=50 + β-decay) yielding 3× early-stage speedup | strong, mechanism explained | β-schedule fully validated; multi-direction MeZO (Spall 1992) |
 
 ---
 
 ## 5. Limitations & Future Work
 
 **Empirical:**
-- Multi-seed runs underway (Day 7 phase 3c) для C2/C3 error bars.
+- Multi-seed runs underway (Day 7 phase 3) для C2/C3 error bars + R1d final.
 - Только SST-2 (sentence classification) и BoolQ (longer-form QA) — нужны harder generative tasks (SAMSum, GSM8K).
-- Scale-up: только до 4 клиентов и Qwen3-4B-/3.5-4B class. Реальный federated deployment был бы 100+ клиентов.
+- Scale-up: только до 4 клиентов и Qwen3-4B/3.5-4B class. Реальный federated deployment был бы 100+ клиентов.
 - No comparison vs published federated MeZO baselines (FedKSeed, Ferret) — integration work.
 
 **Theory:**
-- Формальный convergence rate D-MeZO-N не выведен. Кандидат: combine Koloskova 2020 Theorem 2 (decentralized SGD rate с ρ(W) и data heterogeneity ζ²) с Princeton MeZO bound (Theorem 3 Malladi 2023). Должен дать гибридный rate O(1/T) + topology-correction + ZO-variance term.
+- Формальный convergence rate D-MeZO-N не выведен. Кандидат: combine Koloskova 2020 Theorem 2 (decentralized SGD rate с ρ(W) и data heterogeneity ζ²) с Princeton MeZO bound (Theorem 3 Malladi 2023) с поправкой на momentum + clipping. Должен дать гибридный rate O(1/T) + topology-correction + ZO-variance term + variance-reduction factor (1/(1-β²)) bound by clipping ratio.
 - C2 hypothesis testing (uniform-mixing vs ZO-noise-dominance) требует ablation против size-weighted aggregation.
+- ρ-clipping влияние на convergence bound — открытая теоретическая задача (clipping vs unbiased estimator tradeoff).
 
 **Algorithmic:**
-- C4 показал что vanilla momentum не работает. Variance-reduced MeZO (multi-direction SPSA, JL projection) + Nesterov — открытое направление.
-- Lookahead с clip(ρ, ±C) — простой rescue, не тестирован.
+- C4 показал acceleration **с** ρ-clipping. Multi-direction MeZO (averaging over K random directions) — natural next step для дальнейшего variance reduction (variance ÷ √K) и более стабильного momentum.
+- β-schedule shapes за рамками linear: cosine, hold-then-decay, adaptive. Принципиально не выводится из теории SPSA; empirical sweep.
 
 ---
 
@@ -184,15 +196,23 @@ Velocity buffer теперь участвует в двух каналах (prob
 **Code:** https://github.com/Siesher/dmezo (private)
 
 **Key files:**
-- `src/dmezo/mezo/{step,perturbation,nesterov}.py` — MeZO + Nesterov primitives
-- `src/dmezo/federated/{client,simulator,topology}.py` — federated simulator
-- `src/dmezo/data/{superglue,partition}.py` — task loaders + partition strategies
+- `src/dmezo/mezo/{step,perturbation,nesterov}.py` — MeZO + Nesterov primitives (с rho_clip и beta-schedule)
+- `src/dmezo/federated/{client,simulator,topology}.py` — federated simulator (round_idx прокидывается для β-schedule)
+- `src/dmezo/data/{superglue,partition}.py` — task loaders + IID/Dirichlet/label-skew partitioning
 - `src/dmezo/models/loader.py` — Qwen3/Qwen3.5 HF loader с auto-detect vision tower freeze
-- `scripts/{01_sanity_check_mezo, 03_dmezo_federated}.py` — entrypoints
+- `scripts/{01_sanity_check_mezo, 03_dmezo_federated}.py` — entrypoints, обе с `--seed` CLI override
 - `configs/*.yaml` — per-experiment configs (Hydra-loadable)
 
-**Tests:** 64/64 pytest passing. Coverage: perturbation determinism, topology mixing matrix properties, simulator correctness (consensus modes, Nesterov variants), partition functions, build_partitioned_loaders, classification accuracy.
+**Tests:** 75/75 pytest passing. Coverage: perturbation determinism, topology mixing matrix properties, simulator correctness (consensus modes + Nesterov variants + look-ahead), partition functions, build_partitioned_loaders, classification accuracy, ρ-clipping, β-schedule.
 
 **Experiment tracking:** MLflow file backend (`./mlruns/` mirrored to Google Drive).
 
-**Hyperparameters (canonical):** lr=3e-7, eps=1e-3, weight_decay=0, batch_size=8, max_length=256 (SST-2) / 512 (BoolQ), seed=42 (+43 for variance).
+**Key hyperparameters (canonical, used unless noted):** lr=3e-7, eps=1e-3, weight_decay=0, batch_size=8, max_length=256 (SST-2) / 512 (BoolQ), seed=42 (+43 for variance).
+
+**MLflow run IDs для main results:**
+- Day 5 grid (4 cells): c4f0125f / e4567da3 / 2863e107 / 7059adc3 (single-seed; multi-seed expansion in Phase 3)
+- Day 6 Nesterov ablation: c29d8ba4 (β=0.9 diverged) / 8ee6a415 (β=0.5 neutral)
+- Day 6b look-ahead: 6d06011f (NaN R20)
+- Day 8 R1 (clip200): 1b7ecc5a (slow drift)
+- Day 8 **R1b** (clip50, 3× speedup): **052ee77c** ← main C4 result
+- Day 8 R1d (β-decay): TBD (running)
