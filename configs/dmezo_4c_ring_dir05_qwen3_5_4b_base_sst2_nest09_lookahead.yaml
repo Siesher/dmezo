@@ -1,0 +1,55 @@
+# Day 6b: True Nesterov (look-ahead) ablation on the worst Day 5 cell.
+# Setup: same as Day 6 nest09 (ring + Dir(0.5), β=0.9, seed=42), but with
+# `look_ahead: true` — MeZO probes at θ + βv rather than at θ.
+#
+# Hypothesis: the divergence we observed with heavy-ball β=0.9 was caused by
+# noise amplification in the velocity buffer interacting with ZO-noise. Pure
+# Nesterov (Sutskever et al. 2013 reformulation: evaluate gradient at look-ahead
+# point) gives a less noisy projected_grad because we probe at the position
+# where the next step lands, not where we're standing. On first-order optimisers
+# this often gives better convergence under noisy gradients. Falsifiable: if
+# this run also diverges → heavy-ball form was not the only issue; ZO-noise is
+# fundamentally incompatible with high β regardless of probe location.
+#
+# All other params bit-identical to dmezo_4c_ring_dir05_qwen3_5_4b_base_sst2_nest09.yaml.
+
+experiment_name: dmezo_federated_day6
+seed: 42
+output_dir: experiments/05_dmezo_4c_ring_dir05_qwen3_5_4b_base_sst2_nest09_lookahead
+
+model:
+  name: Qwen/Qwen3.5-4B-Base
+  dtype: bfloat16
+  flash_attention: false
+
+data:
+  task: sst2
+  batch_size: 8
+  max_length: 256
+  num_train_examples: 2000
+  num_eval_examples: 200
+  partition_mode: dirichlet
+  partition_kwargs:
+    alpha: 0.5
+
+mezo:
+  lr: 3.0e-7
+  eps: 1.0e-3
+  weight_decay: 0.0
+
+nesterov:
+  enabled: true
+  beta: 0.9
+  look_ahead: true   # the only difference from nest09 (heavy-ball)
+
+federated:
+  num_clients: 4
+  topology: ring
+  consensus_mode: weight_avg
+  local_steps: 1
+
+train:
+  num_rounds: 1000
+  eval_every: 100
+  log_every: 20
+  eval_batches: 20

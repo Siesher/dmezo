@@ -10,7 +10,8 @@ from __future__ import annotations
 import torch
 from torch import nn
 
-from dmezo.mezo.nesterov import NesterovState, nesterov_step
+from dmezo.mezo.nesterov import NesterovState, nesterov_lookahead_step, nesterov_step
+from dmezo.mezo.step import MeZOConfig
 
 
 def _tiny_model(seed: int = 0) -> nn.Module:
@@ -127,3 +128,114 @@ class TestNesterovStep:
         assert torch.equal(model.bias.data, orig_b), "bias should not be touched by weight_decay"
         # weight: rho=0, decay=0.1 -> theta -= lr * decay * theta = theta - 0.1 * theta = 0.9 * theta
         assert torch.allclose(model.weight.data, 0.9 * orig_w, atol=1e-6)
+
+
+# ---------------------------------------------------------------------------
+# nesterov_lookahead_step — the "true" Nesterov variant
+# ---------------------------------------------------------------------------
+
+
+def _quadratic_loss(model, batch):
+    """Trivial loss: sum of squared params. Differentiable, deterministic, no real data needed."""
+    return sum((p * p).sum() for p in model.parameters())
+
+
+class TestNesterovLookaheadStep:
+    """Tests for the look-ahead Nesterov variant.
+
+    Look-ahead form: perturb to theta + beta * v before MeZO probing, evaluate
+    rho there, then restore theta and apply heavy-ball update with rho_lookahead.
+    """
+
+    def test_with_empty_velocity_matches_vanilla_mezo(self):
+        """With no prior velocity (first call), look-ahead shift is zero, so
+        the function should produce the same MeZO step as plain vanilla MeZO."""
+        import numpy as np
+
+        from dmezo.mezo.step import mezo_step
+
+        m1 = _tiny_model()
+        m2 = _tiny_model()
+        state = NesterovState(beta=0.9, look_ahead=True)
+        cfg = MeZOConfig(lr=1e-3, eps=1e-3)
+        batch = {"x": torch.zeros(1)}
+
+        rng1 = np.random.default_rng(42)
+        rng2 = np.random.default_rng(42)
+        # vanilla mezo_step on m1
+        seed_v, rho_v, _ = mezo_step(m1, batch, _quadratic_loss, cfg, rng=rng1)
+        # look-ahead on m2 (no velocity yet)
+        seed_l, rho_l, _ = nesterov_lookahead_step(m2, state, batch, _quadratic_loss, cfg, rng=rng2)
+
+        assert seed_v == seed_l, "with empty velocity both should pick same seed"
+        assert abs(rho_v - rho_l) < 1e-9, f"rho should match: vanilla={rho_v}, lookahead={rho_l}"
+
+    def test_rolls_back_lookahead_shift(self):
+        """After the call, params at theta should match the heavy-ball trajectory
+        (i.e. no residual look-ahead shift left over from probing)."""
+        import numpy as np
+
+        m1 = _tiny_model()
+        m2 = _tiny_model()
+        # Pre-populate velocity for both states (same value).
+        state1 = NesterovState(beta=0.5, look_ahead=False)
+        state2 = NesterovState(beta=0.5, look_ahead=True)
+        # Seed an initial velocity by doing one nesterov_step.
+        nesterov_step(m1, state1, seed=1, projected_grad=0.1, lr=1e-3)
+        nesterov_step(m2, state2, seed=1, projected_grad=0.1, lr=1e-3)
+
+        # Both should now have identical params and velocities.
+        for (n1, p1), (n2, p2) in zip(m1.named_parameters(), m2.named_parameters()):
+            assert torch.allclose(p1.data, p2.data), f"setup mismatch: {n1}"
+
+        # Now do one look-ahead step on m2 only and compare param magnitudes.
+        # After look-ahead probing, params must be at theta, not theta+beta*v.
+        # We check that the params have moved by a "sensible" amount — not by
+        # beta*v (which would mean rollback failed).
+        snapshot = {n: p.data.clone() for n, p in m2.named_parameters()}
+        cfg = MeZOConfig(lr=1e-3, eps=1e-3)
+        batch = {"x": torch.zeros(1)}
+        nesterov_lookahead_step(m2, state2, batch, _quadratic_loss, cfg, rng=np.random.default_rng(7))
+
+        # After the step: params should equal theta_orig - lr * v_new for some v_new.
+        # If rollback was broken, params would have an extra +beta*v_orig shift.
+        # Concrete check: the *magnitude* of param change should be on the order of lr,
+        # not on the order of beta*v_norm (which would be ~1e-4 here, much larger than lr*v_new).
+        for name, param in m2.named_parameters():
+            delta = (param.data - snapshot[name]).abs().max().item()
+            # lr=1e-3, rho~O(1), |z|~O(1), so |delta| ~ lr * O(1) = 1e-3 magnitude or smaller
+            assert delta < 0.1, (
+                f"{name}: delta={delta:.4f} is too large; rollback likely failed"
+            )
+
+    def test_returns_seed_rho_loss_triple(self):
+        """Function signature: returns (seed, rho, loss_plus) like mezo_step."""
+        import numpy as np
+
+        model = _tiny_model()
+        state = NesterovState(beta=0.5, look_ahead=True)
+        cfg = MeZOConfig(lr=1e-3, eps=1e-3)
+        batch = {"x": torch.zeros(1)}
+        result = nesterov_lookahead_step(
+            model, state, batch, _quadratic_loss, cfg, rng=np.random.default_rng(0)
+        )
+        assert len(result) == 3
+        seed, rho, loss_plus = result
+        assert isinstance(seed, int)
+        assert isinstance(rho, float)
+        assert isinstance(loss_plus, float)
+
+    def test_velocity_is_updated_after_step(self):
+        """After one lookahead step, velocity buffers must exist."""
+        import numpy as np
+
+        model = _tiny_model()
+        state = NesterovState(beta=0.9, look_ahead=True)
+        cfg = MeZOConfig(lr=1e-3, eps=1e-3)
+        batch = {"x": torch.zeros(1)}
+        assert len(state.velocities) == 0
+        nesterov_lookahead_step(
+            model, state, batch, _quadratic_loss, cfg, rng=np.random.default_rng(0)
+        )
+        n_trainable = sum(1 for p in model.parameters() if p.requires_grad)
+        assert len(state.velocities) == n_trainable

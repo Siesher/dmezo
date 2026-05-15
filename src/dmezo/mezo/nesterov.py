@@ -27,8 +27,9 @@ update from ``theta``. This is implemented as the ``look_ahead=True`` mode.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict
+from typing import Callable, Dict, Tuple
 
+import numpy as np
 import torch
 from torch import nn
 
@@ -113,3 +114,77 @@ def nesterov_step(
         v.mul_(state.beta).add_(projected_grad * z + decay * param.data)
         # theta = theta - lr * v
         param.data.add_(v, alpha=-lr)
+
+
+def _apply_lookahead_shift(model: nn.Module, state: NesterovState, sign: float) -> None:
+    """Add ``sign * state.beta * v`` to every trainable parameter in place.
+
+    Used to move parameters to the look-ahead position ``theta + beta * v`` before
+    MeZO probing, then back to ``theta`` afterwards. No-op for parameters whose
+    velocity buffer hasn't been allocated yet (first call).
+    """
+    for name, param in model.named_parameters():
+        if not param.requires_grad:
+            continue
+        v = state.velocities.get(name)
+        if v is None:
+            continue
+        param.data.add_(v, alpha=sign * state.beta)
+
+
+def nesterov_lookahead_step(
+    model: nn.Module,
+    state: NesterovState,
+    inputs: dict,
+    loss_fn: Callable[[nn.Module, dict], torch.Tensor],
+    config: "MeZOConfig",  # noqa: F821 — forward-imported below
+    *,
+    rng: "np.random.Generator | None" = None,  # noqa: F821
+) -> Tuple[int, float, float]:
+    """One look-ahead Nesterov-MeZO step.
+
+    Differs from the heavy-ball variant (``nesterov_step``): the projected
+    gradient is evaluated at the *look-ahead* position ``theta + beta * v``
+    rather than at ``theta``. This is the "true" Nesterov form (Sutskever
+    et al. 2013 momentum reformulation), and for first-order optimization
+    typically gives better convergence under noisy gradients than heavy-ball.
+
+    Algorithm:
+        1. theta <- theta + beta * v          (look-ahead shift)
+        2. (seed, rho, loss_plus) <- mezo_step(theta_lookahead)
+        3. theta <- theta - beta * v          (rollback)
+        4. v <- beta * v + (rho * z + decay * theta)
+        5. theta <- theta - lr * v
+
+    Args:
+        model: HF model whose params will be perturbed.
+        state: Nesterov velocity state. Mutated in place.
+        inputs: Batch dict passed to ``loss_fn``.
+        loss_fn: ``(model, inputs) -> scalar tensor``.
+        config: MeZO hyperparameters.
+        rng: Numpy Generator for the per-step seed (passed through to ``mezo_step``).
+
+    Returns:
+        Tuple ``(seed, projected_grad, loss_plus)`` matching ``mezo_step``'s
+        return signature, where ``projected_grad`` is computed at the look-ahead
+        position.
+    """
+    # Imports moved here to avoid a top-of-module circular import: nesterov.py
+    # now depends on mezo.step, and step.py does NOT import nesterov.
+    from dmezo.mezo.step import mezo_step
+
+    _apply_lookahead_shift(model, state, sign=+1.0)
+    try:
+        seed, rho, loss_plus = mezo_step(model, inputs, loss_fn, config, rng=rng)
+    finally:
+        _apply_lookahead_shift(model, state, sign=-1.0)
+
+    nesterov_step(
+        model,
+        state,
+        seed=seed,
+        projected_grad=rho,
+        lr=config.lr,
+        weight_decay=config.weight_decay,
+    )
+    return seed, rho, loss_plus

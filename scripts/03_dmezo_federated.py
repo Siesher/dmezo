@@ -229,11 +229,16 @@ def main() -> None:
         # ---- Construct ClientState objects
         nesterov_enabled = cfg.get("nesterov", {}).get("enabled", False)
         nesterov_beta = float(cfg.get("nesterov", {}).get("beta", 0.9))
+        nesterov_look_ahead = bool(cfg.get("nesterov", {}).get("look_ahead", False))
         local_steps = int(cfg["federated"].get("local_steps", 1))
 
         clients = []
         for ci in range(n_clients):
-            ns = NesterovState(beta=nesterov_beta) if nesterov_enabled else None
+            ns = (
+                NesterovState(beta=nesterov_beta, look_ahead=nesterov_look_ahead)
+                if nesterov_enabled
+                else None
+            )
             clients.append(
                 ClientState(
                     client_id=ci,

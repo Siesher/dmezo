@@ -19,7 +19,7 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader
 
-from dmezo.mezo.nesterov import NesterovState, nesterov_step
+from dmezo.mezo.nesterov import NesterovState, nesterov_lookahead_step, nesterov_step
 from dmezo.mezo.step import MeZOConfig, mezo_step, mezo_update
 
 
@@ -79,20 +79,38 @@ class ClientState:
         history: list[tuple[int, float, float]] = []
         for _ in range(self.local_steps):
             batch = self._next_batch()
-            seed, rho, loss_plus = mezo_step(
-                self.model, batch, loss_fn, self.mezo_config, rng=self.rng
-            )
-            if apply:
-                if self.nesterov_state is not None:
-                    nesterov_step(
-                        self.model,
-                        self.nesterov_state,
-                        seed=seed,
-                        projected_grad=rho,
-                        lr=self.mezo_config.lr,
-                        weight_decay=self.mezo_config.weight_decay,
-                    )
-                else:
-                    mezo_update(self.model, seed=seed, projected_grad=rho, config=self.mezo_config)
+            if apply and self.nesterov_state is not None and self.nesterov_state.look_ahead:
+                # Look-ahead Nesterov: MeZO probes at theta + beta*v, not theta.
+                # The function handles the shift, mezo step, rollback, and
+                # velocity update in one call.
+                seed, rho, loss_plus = nesterov_lookahead_step(
+                    self.model,
+                    self.nesterov_state,
+                    batch,
+                    loss_fn,
+                    self.mezo_config,
+                    rng=self.rng,
+                )
+            else:
+                seed, rho, loss_plus = mezo_step(
+                    self.model, batch, loss_fn, self.mezo_config, rng=self.rng
+                )
+                if apply:
+                    if self.nesterov_state is not None:
+                        nesterov_step(
+                            self.model,
+                            self.nesterov_state,
+                            seed=seed,
+                            projected_grad=rho,
+                            lr=self.mezo_config.lr,
+                            weight_decay=self.mezo_config.weight_decay,
+                        )
+                    else:
+                        mezo_update(
+                            self.model,
+                            seed=seed,
+                            projected_grad=rho,
+                            config=self.mezo_config,
+                        )
             history.append((seed, rho, loss_plus))
         return history
