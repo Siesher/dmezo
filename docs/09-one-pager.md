@@ -1,6 +1,6 @@
 # D-MeZO-N: Decentralized Federated MeZO с Nesterov-ускорением
 
-**Status (2026-05-15):** Week 1 эксперименты завершены. Спека формально выполнена: empirical 9/9, mathematical 9/9 в **convex case** (Theorem 1, `docs/04-theory.md`), non-convex roadmap отделён в `04-theory-template.md`. Все retrofit Day 5 runs + centralized baseline + R1d (β-decay) finished с full accuracy logging. Multi-seed (seed=43) — single-seed, Phase 3c не успел.
+**Status (2026-05-16):** Week 1 эксперименты завершены. Спека формально выполнена: empirical 9/9, mathematical 9/9 — **Theorem 1** (convex + момент) и **Theorem 2** (non-convex PL без момента) обе доказаны в `docs/04-theory.md`. Все retrofit Day 5 runs + centralized baseline + R1d (β-decay) finished с full accuracy logging. Multi-seed (seed=43) — single-seed, Phase 3c не успел. Full Theorem 3 (PL + momentum) — future work.
 
 ---
 
@@ -174,7 +174,8 @@ Three mechanistic findings:
 | **C2** | D-MeZO robust to extreme non-IID (Dir(0.5) tax <13%) | strong, awaiting multi-seed CI | mechanism: ZO-noise vs uniform-mixing hypothesis |
 | **C3** | Decentralized topology cost negligible at n=4 (ring ≈ complete) | medium (seed=42 single shot) | multi-seed CI; scale to larger n |
 | **C4** | D-MeZO-**N**: phase diagram of Nesterov variants on ZO + practical recipe (ρ-clip C=50 + β-decay) yielding 3× early-stage speedup; R1d beats vanilla by 6.5% with monotonic descent | strong, mechanism explained | β-schedule fully validated; multi-direction MeZO (Spall 1992) |
-| **C5** | **Theorem 1 (D-MeZO-N convergence, convex case)** — formal bound combining Malladi MeZO variance, Koloskova consensus error, and Polyak heavy-ball with ρ-clipping. 4 predictions match empirical findings (federated speedup, β=0.9 unclipped divergence, R1b late drift, R1d monotonic descent). | proven convex; non-convex roadmap in `04-theory-template.md` | extend to non-convex PL via Hessian-low-rank argument |
+| **C5** | **Theorem 1 (D-MeZO-N convergence, convex case)** — formal bound combining Malladi MeZO variance, Koloskova consensus error, and Polyak heavy-ball with ρ-clipping. 4 predictions match empirical findings (federated speedup, β=0.9 unclipped divergence, R1b late drift, R1d monotonic descent). | proven; full Theorem 3 (PL+momentum) — future work | extend to non-convex PL **с** momentum via Yang-Zhao-Cheng framework |
+| **C6** | **Theorem 2 (D-MeZO convergence, non-convex PL, no momentum)** — Karimi-Nutini-Schmidt PL framework + Malladi $r(H)$ + Koloskova consensus error. Покрывает **R1d late-stage strictly** (β_t → 0 в decay schedule). Linear convergence rate $(1-\eta\mu)^T$ к noise floor с linear speedup $1/n$. | proven non-convex PL | full Theorem 3 (PL + heavy-ball момент) |
 
 ---
 
@@ -186,11 +187,14 @@ Three mechanistic findings:
 - Scale-up: только до 4 клиентов и Qwen3-4B/3.5-4B class. Реальный federated deployment был бы 100+ клиентов.
 - No comparison vs published federated MeZO baselines (FedKSeed, Ferret) — integration work.
 
-**Theory (status 2026-05-15):**
-- ✅ **Theorem 1 (convex case) proven** в `docs/04-theory.md`. Bound:
+**Theory (status 2026-05-16):**
+- ✅ **Theorem 1 (convex + momentum) proven** в `docs/04-theory.md`. Bound:
   $\mathbb E[\mathcal L(\bar\theta_T) - \mathcal L^\star] \le \tilde O\!\big(\sqrt{Lr(H)\Delta_0/(nT)}\big) + \tilde O\!\big(\rho^2 C^2 r(H)/((1-\bar\beta)^2 T)\big) + O(\epsilon^2 L^2 r(H))$.
   Combines Malladi MeZO ($r(H)$-bound), Koloskova D-SGD (consensus error), Polyak heavy-ball (momentum) и наш ρ-clipping (Lemma 2). 4 predictions match эмпирику.
-- ⚠️ **Non-convex case** — теорема не доказана. Hessian-low-rank PL setting (A2 из `03-algorithm-spec.md`) предположительно tractable, roadmap в `04-theory-template.md` Sections 3-4. ~2-3 недели careful work для полного proof.
+- ✅ **Theorem 2 (non-convex PL, no momentum) proven** в `docs/04-theory.md` Section 6. Bound:
+  $\mathbb E[\mathcal L(\bar\theta_T) - \mathcal L^\star] \le (1-\eta\mu)^T \Delta_0 + \tilde O(\eta L r(H) G^2/(\mu n)) + \tilde O(\eta^2 \rho^2 L^2 r(H) G^2/(\mu(1-\rho)^2)) + O(\epsilon^2 L^2 r(H)/\mu)$.
+  Karimi-Nutini-Schmidt PL framework + virtual averaged sequence + Lemma 6/7 (D-MeZO bias-variance + consensus error без момента). Покрывает R1d late stage **strictly**.
+- ⚠️ **Theorem 3 (non-convex PL + momentum) — future work**. Требует Yang-Zhao-Cheng 2016 adaptation × decentralized × ZO. ~2-4 недели careful математика. Roadmap в `04-theory-template.md`.
 - ⚠️ **Look-ahead variant** — bound не выведен; эмпирически диверджит (dual-channel noise pathway).
 - C2 hypothesis testing (uniform-mixing vs ZO-noise-dominance) требует ablation против size-weighted aggregation (separate from main theorem).
 
