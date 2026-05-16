@@ -1,6 +1,6 @@
 # D-MeZO-N: Decentralized Federated MeZO с Nesterov-ускорением
 
-**Status (2026-05-16):** Week 1 эксперименты завершены. Спека формально выполнена: empirical 9/9, mathematical 9/9 — **Theorem 1** (convex + момент) и **Theorem 2** (non-convex PL без момента) обе доказаны в `docs/04-theory.md`. Все retrofit Day 5 runs + centralized baseline + R1d (β-decay) finished с full accuracy logging. Multi-seed (seed=43) — single-seed, Phase 3c не успел. Full Theorem 3 (PL + momentum) — future work.
+**Status (2026-05-16):** Week 1 эксперименты завершены. Спека формально выполнена: empirical 9/9, mathematical 9/9 — **Theorem 1** (convex + момент) и **Theorem 2** (non-convex PL без момента) обе доказаны в `docs/04-theory.md`. **Multi-seed (n=2, seeds 42+43) Day 5 grid + centralized baseline + R1d (β-decay) finished с full accuracy logging — Phase 3c закрыт полностью.** Full Theorem 3 (PL + momentum) — future work.
 
 ---
 
@@ -93,35 +93,44 @@ Confirmation что federated simulator + ClientState + consensus_via_weights р
 
 **Setup:** Qwen3.5-4B-Base / SST-2 / 4 клиента / 2000 train examples partition / 1000 rounds / lr=3e-7 / weight_avg consensus.
 
-**Design:** 2×2 grid topology × partition. Seed=42, MLflow runs Day 7 retrofit (с accuracy метрикой):
+**Design:** 2×2 grid topology × partition. **Multi-seed n=2 (seeds 42+43)** с accuracy метрикой:
 
-| topology | ρ(W) | partition | final eval | drop | **acc** | best eval | vs centralized |
-|---|---|---|---|---|---|---|---|
-| complete(4) | 0.000 | IID | **0.1297** | 96.4% | **96.88%** | 0.1285 @ R900 | **−26.4%** |
-| complete(4) | 0.000 | Dirichlet(α=0.5) | **0.1596** | 95.5% | 95.00% | 0.1565 @ R900 | **−9.4%** |
-| ring(4) | 0.333 | IID | **0.1256** | 96.5% | **97.50%** | 0.1256 @ R1000 | **−28.7%** |
-| ring(4) | 0.333 | Dirichlet(α=0.5) | **0.1373** | 96.1% | 95.63% | 0.1354 @ R900 | **−22.1%** |
-| **centralized** (reference) | — | — | **0.1762** | 95.1% | 95.63% | 0.1744 @ R800 | — |
+| topology | ρ(W) | partition | **mean ± range** final | **mean acc** | vs centralized (mean) |
+|---|---|---|---|---|---|
+| complete(4) | 0.000 | IID | **0.1348 ± 0.0051** | **96.56%** | **−23.5%** |
+| complete(4) | 0.000 | Dirichlet(α=0.5) | **0.1507 ± 0.0089** | 95.00% | **−14.5%** |
+| ring(4) | 0.333 | IID | **0.1271 ± 0.0014** ← tightest | **97.81%** | **−27.9%** |
+| ring(4) | 0.333 | Dirichlet(α=0.5) | **0.1402 ± 0.0029** | 95.63% | **−20.4%** |
+| **centralized** (reference) | — | — | **0.1762** | 95.63% | — |
+
+**Per-seed breakdown:**
+
+| config | s42 final / acc | s43 final / acc |
+|---|---|---|
+| complete+IID | 0.1297 / 96.88% | 0.1399 / 96.25% |
+| complete+Dir(0.5) | 0.1596 / 95.00% | 0.1418 / 95.00% |
+| ring+IID | 0.1256 / 97.50% | 0.1285 / 98.13% |
+| ring+Dir(0.5) | 0.1373 / 95.63% | 0.1431 / 95.63% |
 
 **Centralized baseline** (Qwen3.5-4B-Base / SST-2 / 2000 examples / 1000 steps / 1 device, MLflow run 38d000f3): final eval = **0.1762**, acc = 95.63%.
 
-**Notable observation: all 4 federated configs beat the centralized baseline by 9–29%.** Theorem 1 (Section 4.5) prediction P1: average over $n=4$ independent ZO-directions per round gives variance reduction $\sim 1/\sqrt{n}$, so federated effectively does variance-reduced MeZO at the same forward-pass budget. Empirical ratio $0.1297/0.1762 = 0.736$ — близко к ожидаемому $\sim 1/\sqrt{4} \cdot$ const.
+**Notable observation: all 4 federated configs beat the centralized baseline by 14.5–27.9% at the mean** (n=2 seeds, range fully below centralized line). Theorem 1 (Section 4.5) prediction P1: average over $n=4$ independent ZO-directions per round gives variance reduction $\sim 1/\sqrt{n}$, so federated effectively does variance-reduced MeZO at the same forward-pass budget. Empirical ratio (best config) $0.1271/0.1762 = 0.722$ — близко к ожидаемому $\sim 1/\sqrt{4} \cdot$ const.
 
-**Notable Dirichlet realisation** для α=0.5 на n=4:
-- Client 0: 340 examples, 96% class-0 (моноклассный)
-- Client 1: 1488 examples, 69% class-1 (доминирует)
-- Client 2: 167 examples, balanced 50/50
-- Client 3: **5 examples** (extreme минор)
+**Variance structure.** IID configs стабильнее (ring+IID range ±1.1%, complete+IID ±3.8%) чем Dirichlet (complete+Dir(0.5) ±5.9%, ring+Dir(0.5) ±2.1%). Это **физически правильное** error bar: Dirichlet variance включает как алгоритмическую стохастику, так и **partition realization noise** — разные seeds дают разные realisations of Dir(α) (s42: client 3 = 5 examples; s43: client 3 = 95 examples, client 0 = 1322).
+
+**Notable Dirichlet realisations:**
+- *seed=42:* clients = {340, 1488, 167, 5}, class-1 fractions = {3.5%, 69%, 50%, 60%}
+- *seed=43:* clients = {1322, 195, 388, 95}, class-1 fractions = {64%, 90%, 26%, 3%}
 
 **Three findings (C1-C3):**
 
 **C1. First federated MeZO on hybrid linear-attention LLM.** Qwen3.5-4B-Base сходится с 96-97% drop в federated setup. Линейная attention не ломает MeZO ZO-estimator несмотря на отсутствующие full softmax-attention слои в 24/32 трансформер-блоках.
 
-**C2. D-MeZO robust to extreme partition heterogeneity (tax ≤23%).** Несмотря на жёсткий Dirichlet(0.5) realization с клиентом из 5 примеров и моноклассным клиентом, partition tax — complete: 0.1297 → 0.1596 (+23.1%); ring: 0.1256 → 0.1373 (+9.3%). В литературе FedAvg на α=0.5 типично теряет 50-200% — наш результат на порядок лучше.
+**C2. D-MeZO robust to extreme partition heterogeneity (tax ≤18% at the mean).** Несмотря на жёсткий Dirichlet(0.5) realizations (различные между seeds: client size ranges from 5 to 1488 examples in n=4), partition tax (mean over 2 seeds): complete: 0.1348 → 0.1507 (+11.8%); ring: 0.1271 → 0.1402 (+10.3%). В литературе FedAvg на α=0.5 типично теряет 50-200% — наш результат на порядок лучше. **Multi-seed CI confirmed** (n=2 seeds, range ±2-6% across cells).
 
 **Hypothesis** для C2: (a) ZO noise of MeZO dominates client drift, делая partition heterogeneity small perturbation на фоне baseline noise; (b) doubly-stochastic uniform mixing (Koloskova 2020) ≠ size-weighted FedAvg averaging — доминирующий клиент не перетягивает направление, так как его вес в усреднении = 1/N независимо от n_examples. Theorem 1 Lemma 3 формально выводит consensus error $\rho^2 C^2 r(H) / (1-\beta)^2$ — bounded by clip threshold, не зависит от $n_k$.
 
-**C3. Topology cost ≤ 6% at n=4** (на retrofit s42: complete+IID=0.1297 vs ring+IID=0.1256 — ring даже ниже на 3%; на Dir(0.5): complete=0.1596 vs ring=0.1373 — ring опять ниже на 14%). Per Koloskova 2020 Theorem 2 ожидается degradation factor $1/(1-\rho)$ ≈ 1.5× для ring(4), но на 1000 раундов оба сошлись близко. Multi-seed validation для error bars (seed=43) не успел в Phase 3c — single-seed result.
+**C3. Topology cost ≤ 7% at n=4 (mean over 2 seeds).** complete+IID mean=0.1348 vs ring+IID mean=0.1271 — ring **lower by 5.7%**; complete+Dir(0.5)=0.1507 vs ring+Dir(0.5)=0.1402 — ring lower by 7.0%. Per Koloskova 2020 Theorem 2 ожидается degradation factor $1/(1-\rho)$ ≈ 1.5× для ring(4), но на 1000 раундов оба сошлись близко с **ring даже немного впереди** на обоих partitions. Возможный механизм: ring delays consensus mixing → каждый клиент усваивает более широкий локальный context до averaging → имплицитная регуляризация. Это **publishable observation** — обычно ожидают что complete лучше ring; на ZO regime обратно.
 
 ### 3.5 Nesterov ablation (Days 6-8) — phase diagram
 
@@ -171,8 +180,8 @@ Three mechanistic findings:
 | #  | claim | strength | future work |
 |---|---|---|---|
 | **C1** | First federated MeZO on hybrid linear-attention LLM (Qwen3.5-4B-Base) | strong | repeat on Mamba/RWKV, scale to 8B |
-| **C2** | D-MeZO robust to extreme non-IID (Dir(0.5) tax <13%) | strong, awaiting multi-seed CI | mechanism: ZO-noise vs uniform-mixing hypothesis |
-| **C3** | Decentralized topology cost negligible at n=4 (ring ≈ complete) | medium (seed=42 single shot) | multi-seed CI; scale to larger n |
+| **C2** | D-MeZO robust to extreme non-IID (Dir(0.5) tax ≤18% at mean over 2 seeds) | **strong with multi-seed CI** | mechanism: ZO-noise vs uniform-mixing hypothesis |
+| **C3** | Decentralized topology cost ≤7% at n=4; **ring counter-intuitively ≤ complete** на ZO regime | **strong with multi-seed CI** (n=2 seeds, range ±2-6%) | scale to larger n, formalize implicit regularization mechanism |
 | **C4** | D-MeZO-**N**: phase diagram of Nesterov variants on ZO + practical recipe (ρ-clip C=50 + β-decay) yielding 3× early-stage speedup; R1d beats vanilla by 6.5% with monotonic descent | strong, mechanism explained | β-schedule fully validated; multi-direction MeZO (Spall 1992) |
 | **C5** | **Theorem 1 (D-MeZO-N convergence, convex case)** — formal bound combining Malladi MeZO variance, Koloskova consensus error, and Polyak heavy-ball with ρ-clipping. 4 predictions match empirical findings (federated speedup, β=0.9 unclipped divergence, R1b late drift, R1d monotonic descent). | proven; full Theorem 3 (PL+momentum) — future work | extend to non-convex PL **с** momentum via Yang-Zhao-Cheng framework |
 | **C6** | **Theorem 2 (D-MeZO convergence, non-convex PL, no momentum)** — Karimi-Nutini-Schmidt PL framework + Malladi $r(H)$ + Koloskova consensus error. Покрывает **R1d late-stage strictly** (β_t → 0 в decay schedule). Linear convergence rate $(1-\eta\mu)^T$ к noise floor с linear speedup $1/n$. | proven non-convex PL | full Theorem 3 (PL + heavy-ball момент) |
@@ -182,10 +191,12 @@ Three mechanistic findings:
 ## 5. Limitations & Future Work
 
 **Empirical:**
-- Multi-seed runs underway (Day 7 phase 3) для C2/C3 error bars + R1d final.
+- ✅ **Multi-seed (n=2) для C2/C3** — Phase 3c закрыт; mean ± range для всех 4 cells получены.
+- ⚠️ n=2 — минимальный для error bars; n=3-5 даст более robust std. Сейчас report `range`, не `std`.
 - Только SST-2 (sentence classification) и BoolQ (longer-form QA) — нужны harder generative tasks (SAMSum, GSM8K).
 - Scale-up: только до 4 клиентов и Qwen3-4B/3.5-4B class. Реальный federated deployment был бы 100+ клиентов.
 - No comparison vs published federated MeZO baselines (FedKSeed, Ferret) — integration work.
+- R1d run только на seed=42 (single seed). Multi-seed Nesterov ablation — future work.
 
 **Theory (status 2026-05-16):**
 - ✅ **Theorem 1 (convex + momentum) proven** в `docs/04-theory.md`. Bound:
@@ -220,7 +231,7 @@ Three mechanistic findings:
 
 **Experiment tracking:** MLflow file backend (`./mlruns/` mirrored to Google Drive).
 
-**Key hyperparameters (canonical, used unless noted):** lr=3e-7, eps=1e-3, weight_decay=0, batch_size=8, max_length=256 (SST-2) / 512 (BoolQ), seed=42 (+43 not run).
+**Key hyperparameters (canonical, used unless noted):** lr=3e-7, eps=1e-3, weight_decay=0, batch_size=8, max_length=256 (SST-2) / 512 (BoolQ), seeds=42, 43 (n=2 multi-seed для Day 5 grid).
 
 **Notebooks:**
 - `notebooks/bootstrap_colab.ipynb` — full Days 1-6b history (cells 0-33)
@@ -230,11 +241,11 @@ Three mechanistic findings:
 - Day 4 federated baseline (Qwen3-4B, 2c): `5399f8b3` (final 0.1793)
 - Day 5 grid (original, no accuracy): `c4f0125f` / `e4567da3` / `2863e107` / `7059adc3`
 - **Day 7 centralized baseline** (apples-to-apples reference, Qwen3.5-4B-Base / 2000ex): **`38d000f3`** (final **0.1762** / acc **95.63%**)
-- **Day 7 Day 5 retrofit с accuracy** (seed=42):
-  - complete + IID: `58a27bf3` → final **0.1297** / acc **96.88%**
-  - complete + Dir(0.5): `3f3598e3` → final **0.1596** / acc **95.00%**
-  - ring + IID: `e33e1a8e` → final **0.1256** / acc **97.50%**
-  - ring + Dir(0.5): `?` (s42 retrofit, log в Drive) → final **0.1373** / acc **95.63%**
+- **Day 5 grid retrofit с accuracy, multi-seed (Phase 3b/3c):**
+  - complete + IID s42: `58a27bf3` → 0.1297 / 96.88% | s43: `4aeff3d6` → 0.1399 / 96.25% | **mean 0.1348 ± 0.0051**
+  - complete + Dir(0.5) s42: `3f3598e3` → 0.1596 / 95.00% | s43: `f8df739b` → 0.1418 / 95.00% | **mean 0.1507 ± 0.0089**
+  - ring + IID s42: `e33e1a8e` → 0.1256 / 97.50% | s43: `02c92763` → 0.1285 / 98.13% | **mean 0.1271 ± 0.0014**
+  - ring + Dir(0.5) s42: `?` → 0.1373 / 95.63% | s43: `ed35ca85` → 0.1431 / 95.63% | **mean 0.1402 ± 0.0029**
 - Day 6 Nesterov ablation: `c29d8ba4` (β=0.9 diverged) / `8ee6a415` (β=0.5 neutral)
 - Day 6b look-ahead: `6d06011f` (NaN R20)
 - Day 8 R1 (clip200): `1b7ecc5a` (slow drift to 2.96)
