@@ -22,7 +22,7 @@ import numpy as np
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
-ROOT = Path("C:/Work/dmezo/.claude/worktrees/paper-docx")
+ROOT = Path(__file__).resolve().parents[1]
 DATA = Path("C:/Work/dmezo/experiments/results/Final_run/unpack")
 OUT = ROOT / "docs" / "figures"
 OUT.mkdir(parents=True, exist_ok=True)
@@ -374,89 +374,243 @@ def figure4_r1d_breakdown():
 
 
 def figure5_algorithm_schematic():
-    fig, ax = plt.subplots(figsize=(10, 4))
-    ax.axis("off")
+    # Generate two variants — English (fig5) and Russian (fig5_ru) — sharing
+    # the same layout but with the labels translated and a slightly different
+    # call signature for the inner builder.
+    for lang, suffix in [("en", ""), ("ru", "_ru")]:
+        _figure5_one(lang=lang, suffix=suffix)
 
-    # 4 clients around a graph topology + consensus arrows.
-    # Use simple ring layout for n=4.
+
+def _figure5_one(lang: str = "en", suffix: str = ""):
+    """Algorithm-schematic figure with non-overlapping labels and LaTeX-typeset
+    formulas inside both the centre badge and the procedure box.
+
+    lang: "en" or "ru" — controls all visible text.
+    suffix: appended to filename (e.g. "_ru" for Russian).
+    """
+    fig = plt.figure(figsize=(14, 7.2))
+    # Two side panels: left = graph, right = algorithm box.
+    ax_graph = fig.add_axes([0.02, 0.05, 0.46, 0.86])
+    ax_box = fig.add_axes([0.52, 0.05, 0.46, 0.86])
+    for ax in (ax_graph, ax_box):
+        ax.axis("off")
+
+    # --- Translations
+    L = {
+        "en": {
+            "title": "Figure 5. D-MeZO-N algorithm — decentralized peer-to-peer with consensus mixing",
+            "client": "Client",
+            "mezo": "MeZO step",
+            "consensus": "Consensus W\n(doubly-stochastic)\nρ(W) = 0.33  (ring n=4)",
+            "box_header": "D-MeZO-N round t  (for each client i):",
+            "box_lines": [
+                r"1.  sample seed  $s_i^t \sim$  counter PRNG",
+                r"2.  ZO probe:    $\hat\rho_i^t = \dfrac{L(\theta_i + \epsilon z) - L(\theta_i - \epsilon z)}{2\epsilon}$",
+                r"3.  $\rho$-clip:      $\tilde\rho_i^t = \mathrm{clip}(\hat\rho_i^t,\,\pm C)$",
+                r"4.  velocity:    $v_i^{t+1} = \beta_t\,v_i^t + \tilde\rho_i^t\,z_{s_i^t}$",
+                r"5.  update:      $\theta_i^{t+1/2} = \theta_i^t - \eta\,v_i^{t+1}$",
+                r"6.  consensus:   $\theta_i^{t+1} = \sum_{j} W_{ij}\,\theta_j^{t+1/2}$",
+            ],
+            "box_footer": (
+                r"Communication per round per neighbour:"
+                "\n"
+                r"$\mathcal{O}(1)$ scalar  +  1 int seed"
+            ),
+        },
+        "ru": {
+            "title": "Рисунок 5. Алгоритм D-MeZO-N — peer-to-peer с consensus-усреднением",
+            "client": "Клиент",
+            "mezo": "MeZO шаг",
+            "consensus": "Усреднение W\n(дважды стох.)\nρ(W) = 0.33  (кольцо n=4)",
+            "box_header": "Раунд t алгоритма D-MeZO-N  (для каждого клиента i):",
+            "box_lines": [
+                r"1.  выбрать seed $s_i^t \sim$  счётчик-PRNG",
+                r"2.  ZO-замер: $\hat\rho_i^t = \dfrac{L(\theta_i + \epsilon z) - L(\theta_i - \epsilon z)}{2\epsilon}$",
+                r"3.  $\rho$-клип:   $\tilde\rho_i^t = \mathrm{clip}(\hat\rho_i^t,\,\pm C)$",
+                r"4.  скорость: $v_i^{t+1} = \beta_t\,v_i^t + \tilde\rho_i^t\,z_{s_i^t}$",
+                r"5.  обновление: $\theta_i^{t+1/2} = \theta_i^t - \eta\,v_i^{t+1}$",
+                r"6.  consensus: $\theta_i^{t+1} = \sum_{j} W_{ij}\,\theta_j^{t+1/2}$",
+            ],
+            "box_footer": (
+                r"Коммуникация за раунд на соседа:"
+                "\n"
+                r"$\mathcal{O}(1)$ скаляр  +  1 целое seed"
+            ),
+        },
+    }[lang]
+
+    # --- LEFT: graph layout with labels strictly outside the node disk
     n = 4
-    angles = np.linspace(0, 2 * np.pi, n, endpoint=False) + np.pi / 4
-    radius = 2.0
-    xs = radius * np.cos(angles)
-    ys = radius * np.sin(angles)
+    # Place nodes on a square (corners) — 4 fits nicely.
+    coords = np.array([(-1.6, 1.6), (1.6, 1.6), (1.6, -1.6), (-1.6, -1.6)])
+    # Client index ordering on the diagram: 0 top-right, 1 top-left, 2 bottom-left, 3 bottom-right.
+    client_to_corner = {0: 0, 1: 1, 2: 2, 3: 3}
+    R_node = 0.50
+    R_label = 1.10  # how far outside the node the (MeZO step / s_i, ρ_i) label sits
 
-    # Draw nodes.
-    for i, (x, y) in enumerate(zip(xs, ys)):
-        circ = plt.Circle((x, y), 0.55, color="#2E86AB", alpha=0.6, ec="black", linewidth=1.2)
-        ax.add_patch(circ)
-        ax.text(x, y, f"Client\n{i}", ha="center", va="center", fontsize=10, fontweight="bold")
-        # Local MeZO step annotation
-        offset = 1.05
-        ax.text(
-            x * offset + (0.6 if x > 0 else -0.6),
-            y * offset + (0.4 if y > 0 else -0.4),
-            f"MeZO\nstep\n(s_{i}, ρ_{i})",
+    # Map client index to its xy position
+    pos = {ci: tuple(coords[client_to_corner[ci]]) for ci in range(n)}
+
+    # Compute outward radial directions per corner.
+    def outward(p):
+        x, y = p
+        sx = 1 if x >= 0 else -1
+        sy = 1 if y >= 0 else -1
+        return sx, sy
+
+    for ci, (x, y) in pos.items():
+        circ = plt.Circle((x, y), R_node, color="#2E86AB", alpha=0.65, ec="black", linewidth=1.3)
+        ax_graph.add_patch(circ)
+        ax_graph.text(
+            x,
+            y,
+            f"{L['client']}\n{ci}",
             ha="center",
             va="center",
-            fontsize=7.5,
-            color="#444",
+            fontsize=11,
+            fontweight="bold",
+            color="white",
+        )
+        # Outward radial label (MeZO step + (s_i, ρ_i)) — placed strictly outside the circle
+        sx, sy = outward((x, y))
+        lx = x + sx * R_label
+        ly = y + sy * R_label
+        ax_graph.text(
+            lx,
+            ly,
+            f"{L['mezo']}\n$(s_{{{ci}}},\\,\\rho_{{{ci}}})$",
+            ha="center",
+            va="center",
+            fontsize=9,
+            color="#333",
             style="italic",
         )
 
-    # Ring connectivity arrows (consensus mixing).
-    for i in range(n):
-        j = (i + 1) % n
-        x1, y1 = xs[i], ys[i]
-        x2, y2 = xs[j], ys[j]
-        # Shrink endpoints to not overlap nodes.
+    # Connections: complete bipartite drawing showing both ring (red, thick)
+    # and diagonal "could be present in complete" (gray dashed) edges. Keep
+    # only the ring edges for n=4 to match the (ρ(W)=0.333) caption.
+    ring_edges = [(0, 1), (1, 2), (2, 3), (3, 0)]
+    for i, j in ring_edges:
+        x1, y1 = pos[i]
+        x2, y2 = pos[j]
         dx, dy = x2 - x1, y2 - y1
         d = np.hypot(dx, dy)
         ux, uy = dx / d, dy / d
-        shrink = 0.65
+        shrink = R_node + 0.05
         x1s, y1s = x1 + ux * shrink, y1 + uy * shrink
         x2s, y2s = x2 - ux * shrink, y2 - uy * shrink
-        ax.annotate(
+        ax_graph.annotate(
             "",
             xy=(x2s, y2s),
             xytext=(x1s, y1s),
-            arrowprops=dict(arrowstyle="<->", color="#E63946", lw=1.8),
+            arrowprops=dict(arrowstyle="<->", color="#E63946", lw=2.0),
         )
 
-    ax.text(0, 0, "Consensus W\n(doubly-stochastic)\nρ(W) = 0.33 (ring n=4)", ha="center", va="center", fontsize=10, fontweight="bold", color="#E63946")
-
-    ax.set_xlim(-4, 4.5)
-    ax.set_ylim(-3, 3)
-    ax.set_aspect("equal")
-
-    # Algorithm box on the right.
-    box_text = (
-        "D-MeZO-N round t (each client i):\n"
-        "  1. Sample seed $s_i^t$\n"
-        "  2. ZO probe: ρ_i = (L⁺ − L⁻) / 2ε\n"
-        "  3. Clip:   ρ_i ← clip(ρ_i, ±C)\n"
-        "  4. Velocity: v_i ← β_t · v_i + ρ_i · z\n"
-        "  5. Update:  θ_i ← θ_i − η · v_i\n"
-        "  6. Consensus: θ_i ← Σ_j W_{ij} θ_j\n"
-        "\n"
-        "Communication: 1 scalar (ρ) + 1 seed\n"
-        "per round per neighbour"
-    )
-    ax.text(
-        3.0,
+    # Centre badge for consensus W
+    ax_graph.text(
         0,
-        box_text,
-        ha="left",
+        0,
+        L["consensus"],
+        ha="center",
         va="center",
-        fontsize=9.5,
-        family="monospace",
-        bbox=dict(boxstyle="round,pad=0.5", facecolor="#f8f8f8", edgecolor="#999"),
+        fontsize=11,
+        fontweight="bold",
+        color="#E63946",
+        bbox=dict(boxstyle="round,pad=0.45", facecolor="#fff4f4", edgecolor="#E63946", linewidth=1.0),
     )
 
-    fig.suptitle("Figure 5. D-MeZO-N algorithm — decentralised peer-to-peer with consensus mixing", fontsize=11, y=1.02)
-    fig.tight_layout()
-    fig.savefig(OUT / "fig5_algorithm_schematic.png", dpi=300, bbox_inches="tight")
+    ax_graph.set_xlim(-3.6, 3.6)
+    ax_graph.set_ylim(-3.0, 3.0)
+    ax_graph.set_aspect("equal")
+
+    # --- RIGHT: algorithm box with LaTeX-typeset lines
+    box_top = 0.97
+    line_dy = 0.13
+    # Header
+    ax_box.text(
+        0.02,
+        box_top,
+        L["box_header"],
+        ha="left",
+        va="top",
+        fontsize=12,
+        fontweight="bold",
+        transform=ax_box.transAxes,
+    )
+    # Each numbered step, rendered with LaTeX mathtext
+    for k, line in enumerate(L["box_lines"]):
+        ax_box.text(
+            0.04,
+            box_top - 0.13 - k * line_dy,
+            line,
+            ha="left",
+            va="top",
+            fontsize=12,
+            transform=ax_box.transAxes,
+        )
+    # Footer (communication note)
+    ax_box.text(
+        0.02,
+        0.06,
+        L["box_footer"],
+        ha="left",
+        va="bottom",
+        fontsize=11,
+        fontweight="bold",
+        color="#1B4F8C",
+        transform=ax_box.transAxes,
+    )
+
+    # Surrounding rectangle around the right panel
+    rect = plt.Rectangle(
+        (0.0, 0.0),
+        1.0,
+        1.0,
+        transform=ax_box.transAxes,
+        fill=True,
+        facecolor="#f8f8f8",
+        edgecolor="#999",
+        linewidth=1.0,
+    )
+    ax_box.add_patch(rect)
+    # Re-draw text on top of rectangle (matplotlib draws in z-order)
+    ax_box.text(
+        0.02,
+        box_top,
+        L["box_header"],
+        ha="left",
+        va="top",
+        fontsize=12,
+        fontweight="bold",
+        transform=ax_box.transAxes,
+    )
+    for k, line in enumerate(L["box_lines"]):
+        ax_box.text(
+            0.04,
+            box_top - 0.13 - k * line_dy,
+            line,
+            ha="left",
+            va="top",
+            fontsize=12,
+            transform=ax_box.transAxes,
+        )
+    ax_box.text(
+        0.02,
+        0.06,
+        L["box_footer"],
+        ha="left",
+        va="bottom",
+        fontsize=11,
+        fontweight="bold",
+        color="#1B4F8C",
+        transform=ax_box.transAxes,
+    )
+
+    fig.suptitle(L["title"], fontsize=12, y=0.98)
+    out_path = OUT / f"fig5_algorithm_schematic{suffix}.png"
+    fig.savefig(out_path, dpi=300, bbox_inches="tight")
     plt.close(fig)
-    print(f"  saved {OUT / 'fig5_algorithm_schematic.png'}")
+    print(f"  saved {out_path}")
 
 
 # ---------------------------------------------------------------------------

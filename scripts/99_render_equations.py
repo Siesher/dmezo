@@ -12,7 +12,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-OUT = Path("C:/Work/dmezo/.claude/worktrees/paper-docx/docs/figures")
+OUT = Path(__file__).resolve().parents[1] / "docs" / "figures"
 OUT.mkdir(parents=True, exist_ok=True)
 
 EQUATIONS = {

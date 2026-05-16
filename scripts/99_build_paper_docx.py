@@ -16,7 +16,7 @@ from docx.enum.table import WD_ALIGN_VERTICAL
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Cm, Pt, RGBColor
 
-ROOT = Path("C:/Work/dmezo/.claude/worktrees/paper-docx")
+ROOT = Path(__file__).resolve().parents[1]
 FIG = ROOT / "docs" / "figures"
 OUT = ROOT / "docs" / "D-MeZO-N_paper.docx"
 OUT.parent.mkdir(parents=True, exist_ok=True)
