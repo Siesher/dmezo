@@ -99,3 +99,56 @@ Blackwell ~ 3-5× быстрее на тех же моделях. Поэтому
 - С учётом overhead на bf16, flash-attn, large activations: ~10-20 мин
 
 Compute units на Pro+ Blackwell: 5-15 units на полный 1000-step run (учитывая что Colab берёт ~10-30 units/hour для топ карт). Это **намного меньше** чем 30-50 units из исходного плана.
+
+---
+
+## Section 14: HellaSwag run (D-MeZO-N validation on the hard task)
+
+Section 14 в ноутбуке тестирует D-MeZO-N на **4-way commonsense reasoning** (HellaSwag) — это шаг от лексических tasks (SST-2/BoolQ) к настоящему world-knowledge reasoning.
+
+### Preconditions
+
+- Должны быть pushed коммиты `5474100` (theory) и `80ba96f` (HellaSwag pipeline) на `origin/main`. Локально перед запуском:
+  ```powershell
+  git push origin main
+  ```
+- В Colab session перед каждой ячейкой `!cd /content/dmezo && git pull` (уже встроено в cells 14a и 14b).
+- Локально перед push: `uv run --no-sync pytest tests/test_hellaswag.py -v` должен быть зелёным (11/11).
+
+### Cells
+
+| Cell | Что делает | Compute |
+|---|---|---|
+| **14**  | Markdown intro: план 3 runs, success criterion | — |
+| **14a** | Centralized HellaSwag baseline (`qwen3_4b_hellaswag.yaml`), 1000 steps | ~12-15 мин, 3-5 units |
+| **14b** | D-MeZO-N v1 (4 clients complete IID, β-decay 0.9→0 + clip=50), 1000 rounds | ~15-20 мин, 5-7 units |
+| **14c** | Comparison table: centralized vs federated vs random, verdict | <1 мин |
+
+### Success criteria
+
+1. **14a centralized:** `final_eval_acc ≥ 0.30` (≥ random + 5pp), loss падает на ≥10%.
+   - Если ниже 0.30 — HellaSwag слишком сложна для 1000 steps на этом lr; попробуй lr=1e-6.
+2. **14b federated D-MeZO-N:** `final_eval_acc ≥ centralized × 0.9` (partition tax ≤ 10%).
+   - Monotonic descent (β-decay должна давать R1d-like поведение, без late drift).
+3. **14c verdict:** PASS если оба критерия выполняются И `f_acc > random + 5pp = 0.30`.
+
+### Что значит каждый исход
+
+| Исход | Интерпретация для paper |
+|---|---|
+| **PASS (14b > 14a × 0.9)** | D-MeZO-N работает на нетривиальной reasoning task — закрывает раздел «Real-world validation» |
+| **PARTIAL (14b > random + 5pp, но 14b < 14a × 0.9)** | Federated подход работает, но partition tax выше ожидаемого — нужен ablation alpha=2.0 или N=2 |
+| **FAIL (14b ≤ random + 5pp)** | HellaSwag слишком сложна на этом compute budget — нужно либо больше steps, либо tune lr/eps, либо warm-start с SST-2 weights |
+
+### Если что-то идёт не так
+
+- **`final_acc == init_acc` (no learning):** lr слишком мал или ρ заклипилось в 0. Поднять lr до 1e-6, проверить `params.mezo.rho_clip` в logged MLflow.
+- **NaN после ~200-300 раундов:** β-decay не помогла (наш Day 6 negative). Снизить начальный β до 0.7 или поднять clip до 30.
+- **OOM на 14b:** Qwen3-4B × 4 clients = большая память. В config: `data.batch_size: 4` → `2`, или `federated.local_steps: 1` (уже стоит).
+
+### Next ablations (если PASS)
+
+После PASS — есть прямой путь к paper update:
+- 14d: same config, но `partition_mode: dirichlet`, `partition_kwargs.alpha: 0.5` (non-IID HellaSwag — ни Malladi, ни FedKSeed это не делали)
+- 14e: same config, но `topology: ring` (slow-mixing stress test на reasoning task)
+- 14f: ablation `nesterov.enabled: false` — то же самое без D-MeZO-N rescue, для apples-to-apples comparison с paper Theorem 2 (vanilla MeZO PL bound)
