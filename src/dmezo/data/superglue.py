@@ -1,4 +1,4 @@
-"""SuperGLUE / GLUE data preparation for MeZO.
+"""SuperGLUE / GLUE / HellaSwag data preparation for MeZO.
 
 Tasks framed as causal LM completion: prompt the model with the input + a label
 suffix and measure cross-entropy on the label tokens only. This is the framing
@@ -7,6 +7,8 @@ used in Malladi 2023 (MeZO) for OPT models.
 Supported tasks:
     - sst2: binary sentiment (GLUE)
     - boolq: yes/no question answering on a passage (SuperGLUE)
+    - hellaswag: 4-way commonsense reasoning (Zellers 2019); see
+      :mod:`dmezo.data.hellaswag` for per-example multi-choice scoring.
 """
 
 from __future__ import annotations
@@ -213,14 +215,26 @@ def build_boolq_loader(
     )
 
 
+# Import HellaSwag bits lazily-ish; defining at module load avoids circular
+# import because hellaswag.py imports _collate / _load_raw_dataset from this
+# module — both of which are defined above this point.
+from dmezo.data.hellaswag import (  # noqa: E402, F401
+    _HellaSwagDataset,
+    build_hellaswag_loader,
+    evaluate_hellaswag_accuracy,
+)
+
 # Task dispatch: ``cfg["data"]["task"]`` -> dataloader factory function.
 TASK_LOADERS = {
     "sst2": build_sst2_loader,
     "boolq": build_boolq_loader,
+    "hellaswag": build_hellaswag_loader,
 }
 
 # Task -> label-word dict, used by evaluate_classification_accuracy to score
-# each candidate suffix against the gold label.
+# each candidate suffix against the gold label. ``hellaswag`` is intentionally
+# absent here: its candidates are per-example (row["endings"]) so there is no
+# fixed cross-example label vocabulary. See evaluate_hellaswag_accuracy.
 TASK_LABEL_WORDS = {
     "sst2": SST2_LABEL_WORDS,
     "boolq": BOOLQ_LABEL_WORDS,
@@ -230,12 +244,14 @@ TASK_LABEL_WORDS = {
 TASK_DATASETS = {
     "sst2": (_SST2Dataset, "label"),
     "boolq": (_BoolQDataset, "label"),
+    "hellaswag": (_HellaSwagDataset, "label"),
 }
 
 # Task -> default DataLoader kwargs for partitioned mode.
 TASK_DEFAULTS = {
     "sst2": {"batch_size": 8, "max_length": 256},
     "boolq": {"batch_size": 4, "max_length": 512},
+    "hellaswag": {"batch_size": 4, "max_length": 256},
 }
 
 
@@ -258,6 +274,11 @@ def _load_raw_dataset(task: str, split: str):
         return load_dataset("glue", "sst2", split=split)
     if task == "boolq":
         return load_dataset("super_glue", "boolq", split=split, trust_remote_code=True)
+    if task == "hellaswag":
+        ds = load_dataset("hellaswag", split=split, trust_remote_code=True)
+        # HellaSwag stores label as str ("0".."3"). Cast to int so downstream
+        # numpy-array-of-labels code (Dirichlet/label-skew partitioning) works.
+        return ds.map(lambda row: {"label": int(row["label"])})
     raise ValueError(f"Unknown task {task!r}. Supported: {sorted(TASK_DATASETS)}")
 
 
@@ -401,8 +422,12 @@ def evaluate_classification_accuracy(
     Args:
         model: HF model. Must be in eval mode and accept the dataloader's batch
             dict format (input_ids, attention_mask, labels).
-        dataloader: DataLoader over a ``_SST2Dataset`` / ``_BoolQDataset``.
-        task: Task name (``"sst2"`` or ``"boolq"``).
+        dataloader: DataLoader over a ``_SST2Dataset`` / ``_BoolQDataset`` /
+            ``_HellaSwagDataset``.
+        task: Task name (``"sst2"``, ``"boolq"``, or ``"hellaswag"``). For
+            ``hellaswag``, dispatches to
+            :func:`dmezo.data.hellaswag.evaluate_hellaswag_accuracy` which
+            handles per-example 4-way candidate scoring.
         max_batches: Stop after this many batches (matches evaluate_loss
             convention so accuracy and loss are computed over the same pool).
 
@@ -412,8 +437,11 @@ def evaluate_classification_accuracy(
     Raises:
         ValueError: On unknown ``task``.
     """
+    if task == "hellaswag":
+        return evaluate_hellaswag_accuracy(model, dataloader, max_batches=max_batches)
     if task not in TASK_LABEL_WORDS:
-        raise ValueError(f"Unknown task {task!r}. Supported: {sorted(TASK_LABEL_WORDS)}")
+        supported = sorted(set(TASK_LABEL_WORDS) | {"hellaswag"})
+        raise ValueError(f"Unknown task {task!r}. Supported: {supported}")
 
     label_words = TASK_LABEL_WORDS[task]
     classes = sorted(label_words.keys())

@@ -1,0 +1,40 @@
+# Local pre-flight on RTX 2080 (8 GB, Turing) for HellaSwag.
+#
+# Purpose: verify that the new HellaSwag loader + 4-way eval path wires up
+# correctly with MeZO before burning Colab compute on Qwen3-4B.
+#
+# Expected wall-clock on RTX 2080: ~5-10 minutes for 100 steps.
+# Memory footprint: Qwen3-0.6B fp16 ≈ 1.2 GB weights + activations.
+#
+# Success criteria (smoke level):
+#   - script completes without error
+#   - eval_loss is finite (no NaN/Inf)
+#   - projected_grad is non-zero and finite
+#   - eval_accuracy moves (not necessarily up — 100 steps is too few)
+#   - 4-way candidate scoring path executes correctly
+
+seed: 42
+output_dir: experiments/preflight_qwen3_06b_hellaswag
+
+model:
+  name: Qwen/Qwen3-0.6B
+  dtype: float16          # Turing CC 7.5 — no native bf16
+  flash_attention: false  # flash-attn-2 requires Ampere+
+
+data:
+  task: hellaswag
+  batch_size: 2           # contexts can be long; halve vs SST-2 to fit memory
+  max_length: 256
+  num_train_examples: 200
+  num_eval_examples: 50   # 4-way eval is 4× more forwards per example
+
+mezo:
+  lr: 1.0e-6
+  eps: 1.0e-3
+  weight_decay: 0.0
+
+train:
+  steps: 100
+  eval_every: 50
+  log_every: 10
+  eval_batches: 10

@@ -1,0 +1,61 @@
+# D-MeZO-N v1 on HellaSwag (the hard task).
+#
+# Config = Day 8 R1d winner applied to a more complex task:
+#   - 4 clients on complete graph (W_ij = 1/N) — full peer-to-peer mesh.
+#   - IID partition (4-way commonsense doesn't have a natural label-skew like
+#     sentiment does; IID is the natural baseline. A Dirichlet(0.5) follow-up
+#     is the next ablation if this works.)
+#   - Nesterov heavy-ball + β linear-decay 0.9 → 0 over the full horizon.
+#   - ρ-clipping at C=50 (Day 8 R1d setting; clip=200 slow-diverges).
+#   - weight_avg consensus mode (compatible with Nesterov locally; see
+#     docs/07-audit-harden.md D1 for why consensus_via_updates is not).
+#
+# Expected outcome (predictions):
+#   1. PASS: monotonic loss decrease, final ≤ centralized + 15% (partition tax).
+#      Validates Theorem 3 (Lyapunov + β-decay) on a non-trivial task.
+#   2. PARTIAL: loss decreases but plateaus above random (25%). Suggests lr or
+#      eps tuning needed for HellaSwag's harder loss surface.
+#   3. FAIL: divergence or no improvement. Forces revisit of theory (maybe
+#      r(H) too large for HellaSwag — would falsify the r(H)-substitution
+#      argument from Malladi 2023 for this specific task family).
+
+experiment_name: dmezo_hellaswag_nest_decay
+seed: 42
+output_dir: experiments/08_dmezo_4c_complete_iid_qwen3_4b_hellaswag_nest_decay
+
+model:
+  name: Qwen/Qwen3-4B
+  dtype: bfloat16
+  flash_attention: false
+
+data:
+  task: hellaswag
+  batch_size: 4
+  max_length: 256
+  num_train_examples: 2000
+  num_eval_examples: 200
+  partition_mode: iid
+
+mezo:
+  lr: 3.0e-7
+  eps: 1.0e-3
+  weight_decay: 0.0
+  rho_clip: 50.0
+
+nesterov:
+  enabled: true
+  beta: 0.9            # initial β at round 0
+  beta_end: 0.0        # final β at round num_rounds-1 (linear decay)
+  look_ahead: false
+
+federated:
+  num_clients: 4
+  topology: complete
+  consensus_mode: weight_avg
+  local_steps: 1
+
+train:
+  num_rounds: 1000
+  eval_every: 100
+  log_every: 20
+  eval_batches: 20
