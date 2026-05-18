@@ -291,19 +291,26 @@ def _load_raw_dataset(task: str, split: str):
         # numpy-array-of-labels code (Dirichlet/label-skew partitioning) works.
         return ds.map(lambda row: {"label": int(row["label"])})
     if task == "mathlogicqa":
-        # MERA leaderboard hosts MathLogicQA under ai-forever/MERA. Gold labels
-        # come as "A"/"B"/"C"/"D" strings under row["outputs"]; we expose them
-        # as an integer "label" column so the partition utilities (which
-        # expect numpy-arrayable ints) work without further adaptation.
+        # MERA leaderboard hosts MathLogicQA under ai-forever/MERA. Important
+        # constraint: MERA's 'test' split has PRIVATE labels (leaderboard
+        # submission only). row["outputs"] is empty string on test rows.
+        # Only the 'train' split (680 examples) carries public labels.
         #
-        # MERA only ships 'train' and 'test' splits — no 'validation'. Map the
-        # conventional eval name to 'test' so the rest of the pipeline (which
-        # asks for split='validation') works without script changes.
+        # Strategy: load 'train', deterministically split 80/20 into our own
+        # train/validation so callers can use split='train'/'validation' as
+        # they do for other tasks. The split is seeded with a fixed value so
+        # train and validation calls within / across processes are consistent.
         from dmezo.data.mathlogicqa import _gold_to_index
 
-        effective_split = "test" if split == "validation" else split
-        ds = load_dataset("ai-forever/MERA", "mathlogicqa", split=effective_split)
-        return ds.map(lambda row: {"label": _gold_to_index(row.get("outputs", ""))})
+        if split not in {"train", "validation"}:
+            raise ValueError(
+                f"MathLogicQA only exposes 'train' (split 80/20 internally) — "
+                f"got split={split!r}. MERA 'test' labels are private."
+            )
+        full = load_dataset("ai-forever/MERA", "mathlogicqa", split="train")
+        full = full.map(lambda row: {"label": _gold_to_index(row.get("outputs", ""))})
+        splits = full.train_test_split(test_size=0.20, seed=12345)
+        return splits["train"] if split == "train" else splits["test"]
     raise ValueError(f"Unknown task {task!r}. Supported: {sorted(TASK_DATASETS)}")
 
 

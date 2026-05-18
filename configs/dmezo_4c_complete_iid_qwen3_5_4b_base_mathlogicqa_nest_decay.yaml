@@ -30,8 +30,11 @@ data:
   task: mathlogicqa
   batch_size: 4
   max_length: 256
-  num_train_examples: 700
-  num_eval_examples: 200
+  # MERA MathLogicQA: 680 labelled examples (test labels are private). We split
+  # 80/20 internally → 544 train / 136 val available. With 4 clients IID:
+  # 500 train / 4 ≈ 125 examples per client.
+  num_train_examples: 500
+  num_eval_examples: 100
   partition_mode: iid
 
 mezo:
