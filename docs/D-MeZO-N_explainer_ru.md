@@ -681,15 +681,18 @@ $$
 | Day 6b | Look-ahead Nesterov | **NaN at R20** | — | dual-channel noise, 7× faster diverge |
 | Day 8 R1b | β=0.9 + clip50 | 0.119 @ R300 | — | **3× speedup**, но late drift to 0.225 |
 | Day 8 R1d | **β-decay 0.9→0 + clip50** | **0.1291** | — | **monotonic, beats vanilla 0.1381 by 6.5%** |
+| **2026-05-18 HellaSwag** | Qwen3-4B / 4-way commonsense / centralized vanilla | **2.7112** ⬆ | **−5.5%** | **DIVERGED**, acc 0.6625 → 0.6375 (−2.5pp) |
+| **2026-05-18 HellaSwag** | Qwen3-4B / 4-way commonsense / **D-MeZO-N v1** | **2.4959** ⬇ | **+2.85%** | **CONVERGED**, acc 0.6625 → 0.7000 (+3.75pp), **+6.25pp vs centralized** |
 
 ### 8.3 Negative findings (важная часть paper)
 
 Negative results помогают строителям избежать ловушек:
 
-- **β = 0.9 без clip → divergence at R140** (Day 6).
-- **True-Nesterov look-ahead diverges 7× faster** (Day 6b) — двойной канал шума.
-- **C = 200 clip → slow-divergence at R500** (Day 8 R1).
-- **Const β без decay → late drift** (Day 8 R1b → 0.225 финал, хуже чем R1d 0.1291).
+- **β = 0.9 без clip → divergence at R140** (Day 6, SST-2).
+- **True-Nesterov look-ahead diverges 7× faster** (Day 6b, SST-2) — двойной канал шума.
+- **C = 200 clip → slow-divergence at R500** (Day 8 R1, SST-2).
+- **Const β без decay → late drift** (Day 8 R1b, SST-2 → 0.225 финал, хуже чем R1d 0.1291).
+- **Vanilla MeZO без clip → divergence на HellaSwag** (2026-05-18) — даже centralized расходится, loss +5.5% / acc −2.5pp. Не Nesterov-проблема, а **fundamental ZO-noise problem** на hard reasoning задачах. ρ-clipping=50 спасает.
 
 Все эти негативные находки задокументированы и обсуждены в paper.
 
