@@ -17,6 +17,7 @@ princeton-nlp/MeZO `large_models/trainer.py::zo_step` and `::zo_update`.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -55,6 +56,19 @@ class MeZOConfig:
             set. Communication scales as O(K) per neighbour in federated mode.
             Reference: Spall 1992 (multi-direction SPSA); Malladi 2023 §G
             (mentions K-direction as an open extension).
+        lr_schedule: Learning-rate schedule mode. Default ``"constant"`` (the
+            Princeton MeZO convention — yields convergence to noise neighborhood
+            of radius :math:`O(G^2/\\mu)` per Theorem 3, not to true optimum).
+            Set to ``"harmonic"`` for the SPSA classical schedule
+            :math:`\\eta_t = \\eta_0 \\cdot a / (t+1)^{\\alpha}` (Spall 1992,
+            convergence to :math:`\\theta^*`) or ``"cosine"`` for cosine annealing
+            :math:`\\eta_t = \\eta_0 \\cdot 0.5(1 + \\cos(\\pi t/T))`. The
+            effective lr is computed by :func:`effective_lr`; callers pass
+            ``round_idx`` and ``num_rounds`` at use time.
+        lr_decay_a: Numerator parameter ``a`` for harmonic decay (Spall 1992
+            §3.2 notation). Ignored for non-harmonic schedules.
+        lr_decay_alpha: Exponent ``α`` for harmonic decay. Spall's classical
+            choice is 0.602 (gives near-optimal rate under PL).
     """
 
     lr: float = 1e-6
@@ -63,6 +77,49 @@ class MeZOConfig:
     seed_rng: int | None = None
     rho_clip: float | None = None
     k_directions: int = 1
+    lr_schedule: str = "constant"
+    lr_decay_a: float = 1.0
+    lr_decay_alpha: float = 0.602
+
+
+def effective_lr(config: MeZOConfig, round_idx: int, num_rounds: int) -> float:
+    """Compute the effective learning rate at a given round under the schedule.
+
+    Schedules:
+        - ``"constant"``: returns ``config.lr`` unchanged.
+        - ``"harmonic"``: ``config.lr * lr_decay_a / (round_idx + 1) ** lr_decay_alpha``
+          (Spall 1992 §3.2; ``α = 0.602`` is the classical choice).
+        - ``"cosine"``: ``config.lr * 0.5 * (1 + cos(π * progress))`` where
+          ``progress = round_idx / max(num_rounds - 1, 1)``. Reaches 0 at the
+          final round.
+
+    Args:
+        config: Optimizer configuration.
+        round_idx: 0-indexed current round / step (clamped to ≥ 0).
+        num_rounds: Total horizon (used by cosine schedule). Must be ≥ 1.
+
+    Returns:
+        Effective learning rate (always positive for ``round_idx ≥ 0``).
+
+    Raises:
+        ValueError: If ``lr_schedule`` is unknown.
+    """
+    if num_rounds < 1:
+        raise ValueError(f"num_rounds must be ≥ 1, got {num_rounds}")
+    t = max(0, int(round_idx))
+    if config.lr_schedule == "constant":
+        return float(config.lr)
+    if config.lr_schedule == "harmonic":
+        # Spall 1992 convention. Denominator (t+1) so first step uses η_0 * a / 1.
+        return float(config.lr * config.lr_decay_a / ((t + 1) ** config.lr_decay_alpha))
+    if config.lr_schedule == "cosine":
+        T = max(int(num_rounds) - 1, 1)
+        progress = min(t / T, 1.0)
+        return float(config.lr * 0.5 * (1.0 + math.cos(math.pi * progress)))
+    raise ValueError(
+        f"Unknown lr_schedule {config.lr_schedule!r}. "
+        "Supported: 'constant', 'harmonic', 'cosine'."
+    )
 
 
 def _collect_optim_params(model: nn.Module) -> list[tuple[str, nn.Parameter]]:

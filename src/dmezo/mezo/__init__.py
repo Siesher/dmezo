@@ -3,6 +3,7 @@
 from dmezo.mezo.perturbation import perturb_parameters
 from dmezo.mezo.step import (
     MeZOConfig,
+    effective_lr,
     md_mezo_step,
     md_mezo_update,
     mezo_step,
@@ -17,6 +18,7 @@ __all__ = [
     "mezo_update",
     "md_mezo_step",
     "md_mezo_update",
+    "effective_lr",
     "NesterovState",
     "nesterov_step",
     "md_nesterov_step",
