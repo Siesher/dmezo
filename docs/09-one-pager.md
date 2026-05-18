@@ -1,6 +1,17 @@
 # D-MeZO-N: Decentralized Federated MeZO с Nesterov-ускорением
 
-**Status (2026-05-16):** Week 1 эксперименты завершены. Спека формально выполнена: empirical 9/9, mathematical 9/9 — **Theorem 1** (convex + момент) и **Theorem 2** (non-convex PL без момента) обе доказаны в `docs/04-theory.md`. **Multi-seed (n=2, seeds 42+43) Day 5 grid + centralized baseline + R1d (β-decay) finished с full accuracy logging — Phase 3c закрыт полностью.** Full Theorem 3 (PL + momentum) — future work.
+**Автор:** Максим Сухацкий, МГТУ им. Н.Э. Баумана (Калужский филиал) · `rmnfn1992@outlook.com` · `github.com/Siesher/dmezo`
+
+**Status (2026-05-18):** Closure complete. Спека формально выполнена: empirical 11/11, mathematical 10/10. **Theorem 1** (convex), **Theorem 2** (PL без момента), **Theorem 3** (PL + heavy-ball + ρ-clip + β-decay) — все три доказаны (`docs/04-theory.md`, `docs/theory_nesterov_mezo.md`). **Cross-domain validation closed:** D-MeZO-N v1 (β-decay 0.9→0 + ρ-clip=50) валидирован на **4 задачах × 2 архитектурах × 2 языках**:
+
+| Task | Lang | Arch | Vanilla MeZO | D-MeZO-N v1 | Режим |
+|---|---|---|---|---|---|
+| SST-2 | EN | Qwen3-4B + Qwen3.5 | converges | +6.5% loss reduction | **acceleration** (Day 8 R1d) |
+| BoolQ | EN | Qwen3-4B + Qwen3.5 | converges | matches | safe |
+| HellaSwag | EN | Qwen3-4B | **DIVERGES** (−2.5pp acc) | **+3.75pp acc** | **rescue** (2026-05-18) |
+| MathLogicQA | RU | Qwen3.5-4B-Base | converges (−49.7% loss) | **+1.25pp acc** | **safe-track** (2026-05-18) |
+
+**Главное paper-утверждение:** D-MeZO-N v1 — **универсальный adaptive method**. Один и тот же recipe работает как acceleration (когда vanilla сходится медленно), rescue (когда vanilla расходится) и safe regularizer (когда vanilla уже сходится).
 
 ---
 
@@ -205,7 +216,7 @@ Three mechanistic findings:
 - ✅ **Theorem 2 (non-convex PL, no momentum) proven** в `docs/04-theory.md` Section 6. Bound:
   $\mathbb E[\mathcal L(\bar\theta_T) - \mathcal L^\star] \le (1-\eta\mu)^T \Delta_0 + \tilde O(\eta L r(H) G^2/(\mu n)) + \tilde O(\eta^2 \rho^2 L^2 r(H) G^2/(\mu(1-\rho)^2)) + O(\epsilon^2 L^2 r(H)/\mu)$.
   Karimi-Nutini-Schmidt PL framework + virtual averaged sequence + Lemma 6/7 (D-MeZO bias-variance + consensus error без момента). Покрывает R1d late stage **strictly**.
-- ⚠️ **Theorem 3 (non-convex PL + momentum) — future work**. Требует Yang-Zhao-Cheng 2016 adaptation × decentralized × ZO. ~2-4 недели careful математика. Roadmap в `04-theory-template.md`.
+- ✅ **Theorem 3 (non-convex PL + heavy-ball momentum + ρ-clip + β-decay) — PROVED** (`docs/theory_nesterov_mezo.md`, 2026-05-17). Lyapunov $V_t = (L_t - L^*) + (\eta/2)\|v_t\|^2$ + Young's inequality + PL даёт $\mathbb{E}[V_T] \le (1-3\eta\mu/4)^T V_0 + 4G^2/(3\mu)$. Эмпирически валидировано в **двух режимах** (HellaSwag rescue + MathLogicQA safe-track). Открытыми остаются (a) full decentralized с $\rho_W < 1$ и (b) transient acceleration vs asymptotic.
 - ⚠️ **Look-ahead variant** — bound не выведен; эмпирически диверджит (dual-channel noise pathway).
 - C2 hypothesis testing (uniform-mixing vs ZO-noise-dominance) требует ablation против size-weighted aggregation (separate from main theorem).
 

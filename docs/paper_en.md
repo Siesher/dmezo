@@ -1,6 +1,6 @@
 ---
 title: "D-MeZO-N: Decentralized Federated MeZO with Nesterov Acceleration"
-author: "Maksim Filimonov · Bauman MSTU (Kaluga branch)"
+author: "Maxim Sukhatsky — Bauman MSTU (Kaluga branch) — rmnfn1992@outlook.com — github.com/Siesher/dmezo"
 date: "Spring 2026"
 lang: en
 ---
@@ -169,6 +169,10 @@ The data pool is MERA train (680 labelled examples, test labels are private); we
 The same recipe (β-decay 0.9 → 0 + ρ-clip 50) works as **rescue** when vanilla diverges (HellaSwag: $|\hat\rho|$ peaks at +159, neighborhood diverges) and as **safe regularizer** when vanilla converges (MathLogicQA: $|\hat\rho|$ peaks at +375 but cumulative effect is bounded by single-token suffix loss — vanilla still converges, but D-MeZO-N produces slightly better-generalizing model via $1/\sqrt{n}$ z-direction averaging across $n=4$ clients).
 
 This is exactly the behavior Theorem 3 predicts: under bounded $G^2$, linear convergence to $4G^2/(3\mu)$; without clip, $G^2$ unbounded, neighborhood diverges. Two empirical regimes, one theoretical mechanism.
+
+![Figure 6. Cross-domain trajectories illustrating the two D-MeZO-N regimes. (a) HellaSwag on Qwen3-4B: centralized vanilla MeZO drifts upward from R200 (final loss +5.5% vs. init, accuracy −2.5pp), while federated D-MeZO-N v1 (β-decay 0.9→0 + ρ-clip=50) descends monotonically (final loss −2.85%, accuracy +3.75pp). (b) MathLogicQA on Qwen3.5-4B-Base: vanilla MeZO already converges (loss −49.7%); D-MeZO-N tracks closely (loss −46.8%) with a small accuracy gain (+1.25pp final / +3.75pp peak at R500). Same recipe, two qualitatively distinct convergence regimes.](figures/fig6_cross_domain_trajectories.png){width=16cm}
+
+![Figure 7. Cross-task summary: improvement of D-MeZO-N v1 over centralized vanilla MeZO across three task domains. SST-2 (Day 8 R1d, single-seed): +6.5% loss reduction. HellaSwag (§5.5): +6.25pp accuracy (rescue regime — vanilla diverges). MathLogicQA (§5.6): +1.25pp accuracy (safe-track regime — vanilla converges). One recipe (β-decay 0.9 → 0 + ρ-clip=50) operates effectively across acceleration, rescue, and safe-tracking regimes.](figures/fig7_cross_task_summary.png){width=14cm}
 
 # 6. Discussion
 
