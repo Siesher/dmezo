@@ -1,0 +1,42 @@
+# Qwen3.5-4B-Base / HellaSwag — centralized MeZO baseline on hybrid linear-attn.
+#
+# Task: 4-way commonsense reasoning (Zellers 2019). Harder than SST-2/BoolQ
+# because endings are multi-token and require world knowledge.
+#
+# Why Qwen3.5-4B-Base (not Qwen3-4B):
+# - Day 5 grid (4 configs) + Day 8 R1d (D-MeZO-N v1 winner) all live on this arch.
+# - Loader auto-freezes the 24-layer ViT; MeZO perturbs only the hybrid text
+#   decoder (32 layers: 24 linear-attn + 8 full-attn, "Qwen3_5ForConditionalGeneration").
+# - Paper claim: "first MeZO on hybrid linear-attention LLM" — keep the arch
+#   consistent across SST-2 / BoolQ / HellaSwag so the cross-task story is clean.
+#
+# Random-guess accuracy: 25%. Realistic target after 1000 MeZO steps: 30-40%.
+# This is the apples-to-apples reference point for the federated D-MeZO-N run
+# in dmezo_4c_complete_iid_qwen3_5_4b_base_hellaswag_nest_decay.yaml.
+
+experiment_name: dmezo_hellaswag_baseline
+seed: 42
+output_dir: experiments/02_sanity_qwen3_5_4b_base_hellaswag
+
+model:
+  name: Qwen/Qwen3.5-4B-Base
+  dtype: bfloat16
+  flash_attention: false
+
+data:
+  task: hellaswag
+  batch_size: 4
+  max_length: 256
+  num_train_examples: 2000
+  num_eval_examples: 200
+
+mezo:
+  lr: 3.0e-7
+  eps: 1.0e-3
+  weight_decay: 0.0
+
+train:
+  steps: 1000
+  eval_every: 100
+  log_every: 20
+  eval_batches: 20

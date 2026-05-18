@@ -1,0 +1,63 @@
+# D-MeZO-N v1 на HellaSwag + Qwen3.5-4B-Base — главная validation статьи.
+#
+# Эта конфигурация — пересечение трёх «новых» вкладов проекта:
+#   1. D-MeZO-N v1 recipe (β-decay 0.9→0 + ρ-clip=50) — выкован на Day 8 R1d
+#      именно на этой архитектуре + worst Day 5 cell (ring + Dir(0.5)).
+#   2. Hybrid linear-attention LLM (Qwen3.5-4B-Base, 24 linear + 8 full-attn) —
+#      первый known тест MeZO на linear-attn (Day 5 grid).
+#   3. 4-way commonsense reasoning (HellaSwag) — реальный paper-level task,
+#      не simple sentiment / yes-no.
+#
+# Топология: complete graph (W_ij = 1/N) + IID partition. Это «лёгкий» cell —
+# партиция тривиальна, mixing мгновенный. Цель: показать, что в чистых условиях
+# federated D-MeZO-N matchает centralized (apples-to-apples с конфигом
+# qwen3_5_4b_base_hellaswag.yaml).
+#
+# Если PASS — следующий ablation:
+#   - dmezo_4c_complete_dir05_qwen3_5_4b_base_hellaswag_nest_decay.yaml (non-IID)
+#   - dmezo_4c_ring_iid_qwen3_5_4b_base_hellaswag_nest_decay.yaml (slow mixing)
+#   - dmezo_4c_ring_dir05_qwen3_5_4b_base_hellaswag_nest_decay.yaml (worst cell)
+#
+# Если FAIL — пересмотр Theorem 3 (возможно r(H) для commonsense > чем для SST-2,
+# и тогда наш bound 4G²/(3μ) слишком оптимистичен на HellaSwag).
+
+experiment_name: dmezo_hellaswag_nest_decay
+seed: 42
+output_dir: experiments/08_dmezo_4c_complete_iid_qwen3_5_4b_base_hellaswag_nest_decay
+
+model:
+  name: Qwen/Qwen3.5-4B-Base
+  dtype: bfloat16
+  flash_attention: false
+
+data:
+  task: hellaswag
+  batch_size: 4
+  max_length: 256
+  num_train_examples: 2000
+  num_eval_examples: 200
+  partition_mode: iid
+
+mezo:
+  lr: 3.0e-7
+  eps: 1.0e-3
+  weight_decay: 0.0
+  rho_clip: 50.0
+
+nesterov:
+  enabled: true
+  beta: 0.9            # initial β at round 0
+  beta_end: 0.0        # final β at round num_rounds-1 (linear decay)
+  look_ahead: false
+
+federated:
+  num_clients: 4
+  topology: complete
+  consensus_mode: weight_avg
+  local_steps: 1
+
+train:
+  num_rounds: 1000
+  eval_every: 100
+  log_every: 20
+  eval_batches: 20

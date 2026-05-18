@@ -120,7 +120,7 @@ Section 14 в ноутбуке тестирует D-MeZO-N на **4-way commonse
 | Cell | Что делает | Compute |
 |---|---|---|
 | **14**  | Markdown intro: план 3 runs, success criterion | — |
-| **14a** | Centralized HellaSwag baseline (`qwen3_4b_hellaswag.yaml`), 1000 steps | ~12-15 мин, 3-5 units |
+| **14a** | Centralized HellaSwag baseline (`qwen3_5_4b_base_hellaswag.yaml`), 1000 steps | ~12-15 мин, 3-5 units |
 | **14b** | D-MeZO-N v1 (4 clients complete IID, β-decay 0.9→0 + clip=50), 1000 rounds | ~15-20 мин, 5-7 units |
 | **14c** | Comparison table: centralized vs federated vs random, verdict | <1 мин |
 
@@ -144,7 +144,7 @@ Section 14 в ноутбуке тестирует D-MeZO-N на **4-way commonse
 
 - **`final_acc == init_acc` (no learning):** lr слишком мал или ρ заклипилось в 0. Поднять lr до 1e-6, проверить `params.mezo.rho_clip` в logged MLflow.
 - **NaN после ~200-300 раундов:** β-decay не помогла (наш Day 6 negative). Снизить начальный β до 0.7 или поднять clip до 30.
-- **OOM на 14b:** Qwen3-4B × 4 clients = большая память. В config: `data.batch_size: 4` → `2`, или `federated.local_steps: 1` (уже стоит).
+- **OOM на 14b:** Qwen3.5-4B-Base × 4 clients = большая память (~25-30 GB peak). В config: `data.batch_size: 4` → `2`, или `federated.local_steps: 1` (уже стоит). Vision tower уже заморожен loader'ом — perturbируется только text decoder.
 
 ### Next ablations (если PASS)
 
