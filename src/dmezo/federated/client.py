@@ -19,8 +19,13 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader
 
-from dmezo.mezo.nesterov import NesterovState, nesterov_lookahead_step, nesterov_step
-from dmezo.mezo.step import MeZOConfig, mezo_step, mezo_update
+from dmezo.mezo.nesterov import (
+    NesterovState,
+    md_nesterov_step,
+    nesterov_lookahead_step,
+    nesterov_step,
+)
+from dmezo.mezo.step import MeZOConfig, md_mezo_step, md_mezo_update, mezo_step, mezo_update
 
 
 @dataclass
@@ -84,12 +89,48 @@ class ClientState:
         if self.nesterov_state is not None:
             self.nesterov_state.update_schedule(round_idx)
         history: list[tuple[int, float, float]] = []
+        K = max(1, int(getattr(self.mezo_config, "k_directions", 1)))
         for _ in range(self.local_steps):
             batch = self._next_batch()
-            if apply and self.nesterov_state is not None and self.nesterov_state.look_ahead:
+            if K > 1:
+                # Multi-direction MeZO (MD-D-MeZO-N path).
+                # Look-ahead Nesterov is not yet supported with K>1 — explicit
+                # error rather than silent fallback for clarity.
+                if (
+                    apply
+                    and self.nesterov_state is not None
+                    and self.nesterov_state.look_ahead
+                ):
+                    raise NotImplementedError(
+                        "Look-ahead Nesterov + K>1 (MD) is not yet implemented. "
+                        "Either set look_ahead=False (heavy-ball) or k_directions=1."
+                    )
+                seeds_list, rhos_list, loss_plus = md_mezo_step(
+                    self.model, batch, loss_fn, self.mezo_config, rng=self.rng
+                )
+                # For per-step history we log the MEAN ρ (aggregated estimator).
+                rho_mean = sum(rhos_list) / len(rhos_list)
+                seed_repr = seeds_list[0]  # first seed for logging only
+                if apply:
+                    if self.nesterov_state is not None:
+                        md_nesterov_step(
+                            self.model,
+                            self.nesterov_state,
+                            seeds=seeds_list,
+                            projected_grads=rhos_list,
+                            lr=self.mezo_config.lr,
+                            weight_decay=self.mezo_config.weight_decay,
+                        )
+                    else:
+                        md_mezo_update(
+                            self.model,
+                            seeds=seeds_list,
+                            projected_grads=rhos_list,
+                            config=self.mezo_config,
+                        )
+                history.append((seed_repr, rho_mean, loss_plus))
+            elif apply and self.nesterov_state is not None and self.nesterov_state.look_ahead:
                 # Look-ahead Nesterov: MeZO probes at theta + beta*v, not theta.
-                # The function handles the shift, mezo step, rollback, and
-                # velocity update in one call.
                 seed, rho, loss_plus = nesterov_lookahead_step(
                     self.model,
                     self.nesterov_state,
@@ -98,6 +139,7 @@ class ClientState:
                     self.mezo_config,
                     rng=self.rng,
                 )
+                history.append((seed, rho, loss_plus))
             else:
                 seed, rho, loss_plus = mezo_step(
                     self.model, batch, loss_fn, self.mezo_config, rng=self.rng
@@ -119,5 +161,5 @@ class ClientState:
                             projected_grad=rho,
                             config=self.mezo_config,
                         )
-            history.append((seed, rho, loss_plus))
+                history.append((seed, rho, loss_plus))
         return history

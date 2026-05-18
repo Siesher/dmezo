@@ -33,7 +33,13 @@ from dmezo.data.superglue import (  # noqa: E402, F401
     causal_lm_loss,
     evaluate_classification_accuracy,
 )
-from dmezo.mezo.step import MeZOConfig, mezo_step, mezo_update  # noqa: E402
+from dmezo.mezo.step import (  # noqa: E402
+    MeZOConfig,
+    md_mezo_step,
+    md_mezo_update,
+    mezo_step,
+    mezo_update,
+)
 from dmezo.models.loader import load_causal_lm  # noqa: E402
 from dmezo.utils.config import load_yaml_config  # noqa: E402
 from dmezo.utils.logging import JSONLLogger, setup_logger  # noqa: E402
@@ -196,12 +202,19 @@ def main() -> None:
         # ---- MeZO config
         rho_clip_raw = cfg["mezo"].get("rho_clip", None)
         rho_clip = float(rho_clip_raw) if rho_clip_raw is not None else None
+        k_directions = int(cfg["mezo"].get("k_directions", 1))
         mezo_cfg = MeZOConfig(
             lr=float(cfg["mezo"]["lr"]),
             eps=float(cfg["mezo"]["eps"]),
             weight_decay=float(cfg["mezo"].get("weight_decay", 0.0)),
             rho_clip=rho_clip,
+            k_directions=k_directions,
         )
+        if k_directions > 1:
+            logger.info(
+                f"Multi-direction MeZO enabled: K={k_directions} "
+                f"({2 * k_directions} forwards per step)"
+            )
         n_steps = int(cfg["train"]["steps"])
         eval_every = int(cfg["train"]["eval_every"])
         log_every = int(cfg["train"].get("log_every", 20))
@@ -230,8 +243,19 @@ def main() -> None:
                 train_iter = iter(train_loader)
                 batch = next(train_iter)
 
-            seed, rho, loss_plus = mezo_step(model, batch, causal_lm_loss, mezo_cfg, rng=rng)
-            mezo_update(model, seed=seed, projected_grad=rho, config=mezo_cfg)
+            if mezo_cfg.k_directions > 1:
+                seeds_list, rhos_list, loss_plus = md_mezo_step(
+                    model, batch, causal_lm_loss, mezo_cfg, rng=rng
+                )
+                md_mezo_update(
+                    model, seeds=seeds_list, projected_grads=rhos_list, config=mezo_cfg
+                )
+                # For logging: representative seed + mean ρ.
+                seed = seeds_list[0]
+                rho = sum(rhos_list) / len(rhos_list)
+            else:
+                seed, rho, loss_plus = mezo_step(model, batch, causal_lm_loss, mezo_cfg, rng=rng)
+                mezo_update(model, seed=seed, projected_grad=rho, config=mezo_cfg)
             losses.append(loss_plus)
 
             if step % log_every == 0:

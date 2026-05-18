@@ -1,0 +1,58 @@
+# MD-D-MeZO-N на HellaSwag: K=3 variant of 2026-05-18 headline federated run.
+#
+# Идентично federated D-MeZO-N v1 на HellaSwag (Qwen3-4B, 4c complete IID,
+# β-decay 0.9→0, clip=50) за исключением: ``k_directions: 3``.
+#
+# HellaSwag — это RESCUE-режим: vanilla MeZO расходится (loss +5.5%, acc -2.5pp),
+# D-MeZO-N v1 спасает (+3.75pp acc). Multi-direction может либо:
+#   1. УСИЛИТЬ rescue (K=3 → +5pp acc или больше). Открыло бы что K-direction
+#      является дополнительным механизмом ускорения сходимости.
+#   2. ОСТАВИТЬ acc на том же уровне (~+3.75pp). Тогда K-direction избыточен —
+#      ρ-clip уже справился с задачей.
+#   3. УХУДШИТЬ (acc упадёт ниже +3.75pp). Тогда K-direction теряет worst-case
+#      outliers за счёт усреднения с другими шумными направлениями.
+#
+# Note: используем Qwen3-4B (а не Qwen3.5) чтобы прямо сравнить с 2026-05-18
+# headline result. Если K=3 ясно превосходит — повторим на Qwen3.5 как cross-arch.
+
+experiment_name: dmezo_md_ablation
+seed: 42
+output_dir: experiments/11_dmezo_md_k3_complete_iid_qwen3_4b_hellaswag
+
+model:
+  name: Qwen/Qwen3-4B
+  dtype: bfloat16
+  flash_attention: false
+
+data:
+  task: hellaswag
+  batch_size: 4
+  max_length: 256
+  num_train_examples: 2000
+  num_eval_examples: 200
+  partition_mode: iid
+
+mezo:
+  lr: 3.0e-7
+  eps: 1.0e-3
+  weight_decay: 0.0
+  rho_clip: 50.0
+  k_directions: 3      # <-- NEW: multi-direction SPSA
+
+nesterov:
+  enabled: true
+  beta: 0.9
+  beta_end: 0.0
+  look_ahead: false
+
+federated:
+  num_clients: 4
+  topology: complete
+  consensus_mode: weight_avg
+  local_steps: 1
+
+train:
+  num_rounds: 1000
+  eval_every: 100
+  log_every: 20
+  eval_batches: 20

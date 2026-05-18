@@ -233,12 +233,19 @@ def main() -> None:
         # ---- MeZO config (shared across clients)
         rho_clip_raw = cfg["mezo"].get("rho_clip", None)
         rho_clip = float(rho_clip_raw) if rho_clip_raw is not None else None
+        k_directions = int(cfg["mezo"].get("k_directions", 1))
         mezo_cfg = MeZOConfig(
             lr=float(cfg["mezo"]["lr"]),
             eps=float(cfg["mezo"]["eps"]),
             weight_decay=float(cfg["mezo"].get("weight_decay", 0.0)),
             rho_clip=rho_clip,
+            k_directions=k_directions,
         )
+        if k_directions > 1:
+            logger.info(
+                f"Multi-direction MeZO enabled: K={k_directions} "
+                f"({2 * k_directions} forwards per local step vs 2 baseline)"
+            )
 
         # ---- Construct ClientState objects
         nesterov_enabled = cfg.get("nesterov", {}).get("enabled", False)

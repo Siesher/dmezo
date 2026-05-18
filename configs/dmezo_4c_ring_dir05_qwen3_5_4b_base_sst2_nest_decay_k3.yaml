@@ -1,0 +1,65 @@
+# MD-D-MeZO-N ablation: K=3 multi-direction variant of Day 8 R1d.
+#
+# Эта конфигурация — закрытие Gemini-критики (см. paper §6, paragraph "Reviewer
+# response: multi-direction SPSA"). Полностью идентична Day 8 R1d (worst Day 5
+# cell: ring(4) + Dirichlet(α=0.5) + β-decay 0.9→0 + ρ-clip=50), за исключением
+# одной строки: ``mezo.k_directions: 3``.
+#
+# Что проверяем:
+#   - PASS если K=3 → final loss < R1d final (0.1291). Это валидирует
+#     Gemini-аргумент: variance reduction даёт дополнительное ускорение поверх
+#     β-decay + ρ-clip.
+#   - NEUTRAL если K=3 ≈ R1d (±5%). Тогда ρ-clipping уже достаточен и
+#     multi-direction не добавляет ценности. Acceptable null result.
+#   - FAIL если K=3 > R1d значительно. Это означает что naive multi-direction
+#     averaging interagiet негативно с β-decay schedule (open theoretical
+#     question).
+#
+# Compute cost: 2K=6 forwards/round vs 2 baseline. ~3× wall-clock vs R1d. На
+# Blackwell ~110 минут (R1d было ~37 мин). Бюджет ~10 units.
+#
+# Reference: Spall 1992 (multi-direction SPSA); Malladi 2023 §G (упоминание).
+
+experiment_name: dmezo_md_ablation
+seed: 42
+output_dir: experiments/10_dmezo_md_k3_ring_dir05_qwen3_5_4b_base_sst2
+
+model:
+  name: Qwen/Qwen3.5-4B-Base
+  dtype: bfloat16
+  flash_attention: false
+
+data:
+  task: sst2
+  batch_size: 8
+  max_length: 256
+  num_train_examples: 2000
+  num_eval_examples: 200
+  partition_mode: dirichlet
+  partition_kwargs:
+    alpha: 0.5
+
+mezo:
+  lr: 3.0e-7
+  eps: 1.0e-3
+  weight_decay: 0.0
+  rho_clip: 50.0
+  k_directions: 3      # <-- NEW: multi-direction SPSA
+
+nesterov:
+  enabled: true
+  beta: 0.9
+  beta_end: 0.0
+  look_ahead: false
+
+federated:
+  num_clients: 4
+  topology: ring
+  consensus_mode: weight_avg
+  local_steps: 1
+
+train:
+  num_rounds: 1000
+  eval_every: 100
+  log_every: 20
+  eval_batches: 20

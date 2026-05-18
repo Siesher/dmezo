@@ -153,6 +153,93 @@ def nesterov_step(
         param.data.add_(v, alpha=-lr)
 
 
+def md_nesterov_step(
+    model: nn.Module,
+    state: NesterovState,
+    seeds: list[int],
+    projected_grads: list[float],
+    lr: float,
+    weight_decay: float = 0.0,
+) -> None:
+    """Apply one Multi-Direction Nesterov-MeZO update (K-direction heavy-ball).
+
+    Computes the K-direction-averaged gradient::
+
+        g_tilde = (1/K) Σ_k ρ_k z_k
+
+    and feeds it through the Nesterov velocity buffer::
+
+        v <- beta * v + (g_tilde + weight_decay * theta)
+        theta <- theta - lr * v
+
+    K=1 is regression-equivalent to ``nesterov_step``. Per-direction z_k are
+    regenerated from ``seeds[k]``. Weight decay is applied once per call
+    (NOT K times) to match single-direction semantics.
+
+    Args:
+        model: Model whose parameters to update.
+        state: NesterovState (velocity buffers, beta). Mutated in place.
+        seeds: Length-K list of per-direction seeds.
+        projected_grads: Length-K list of per-direction ρ_k (clipped if config
+            had rho_clip set).
+        lr: Learning rate.
+        weight_decay: L2 coefficient (applied only to non-bias / non-norm params).
+
+    Raises:
+        ValueError: If ``len(seeds) != len(projected_grads)`` or list is empty.
+    """
+    if len(seeds) != len(projected_grads):
+        raise ValueError(
+            f"seeds and projected_grads must have same length; "
+            f"got {len(seeds)} vs {len(projected_grads)}."
+        )
+    K = len(seeds)
+    if K == 0:
+        raise ValueError("md_nesterov_step requires at least one direction.")
+    inv_K = 1.0 / K
+
+    # Phase 1: v <- beta * v + decay * theta  (decay applied once, not K times).
+    for name, param in model.named_parameters():
+        if not param.requires_grad:
+            continue
+        v = _ensure_velocity_buffer(state, name, param)
+        v.mul_(state.beta)
+        if weight_decay > 0.0:
+            lname = name.lower()
+            decay = (
+                weight_decay
+                if ("bias" not in lname)
+                and ("layer_norm" not in lname)
+                and ("layernorm" not in lname)
+                else 0.0
+            )
+            if decay > 0.0:
+                v.add_(param.data, alpha=decay)
+
+    # Phase 2: v += (1/K) Σ_k ρ_k z_k  (accumulate per-direction contributions).
+    for seed, rho_k in zip(seeds, projected_grads):
+        torch.manual_seed(seed)
+        for name, param in model.named_parameters():
+            if not param.requires_grad:
+                continue
+            z = torch.normal(
+                mean=0.0,
+                std=1.0,
+                size=param.data.size(),
+                device=param.data.device,
+                dtype=param.data.dtype,
+            )
+            v = state.velocities[name]
+            v.add_(z, alpha=rho_k * inv_K)
+
+    # Phase 3: theta <- theta - lr * v.
+    for name, param in model.named_parameters():
+        if not param.requires_grad:
+            continue
+        v = state.velocities[name]
+        param.data.add_(v, alpha=-lr)
+
+
 def _apply_lookahead_shift(model: nn.Module, state: NesterovState, sign: float) -> None:
     """Add ``sign * state.beta * v`` to every trainable parameter in place.
 
