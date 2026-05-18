@@ -223,21 +223,30 @@ from dmezo.data.hellaswag import (  # noqa: E402, F401
     build_hellaswag_loader,
     evaluate_hellaswag_accuracy,
 )
+from dmezo.data.mathlogicqa import (  # noqa: E402, F401
+    MATHLOGICQA_LABEL_WORDS,
+    _MathLogicQADataset,
+    build_mathlogicqa_loader,
+)
 
 # Task dispatch: ``cfg["data"]["task"]`` -> dataloader factory function.
 TASK_LOADERS = {
     "sst2": build_sst2_loader,
     "boolq": build_boolq_loader,
     "hellaswag": build_hellaswag_loader,
+    "mathlogicqa": build_mathlogicqa_loader,
 }
 
 # Task -> label-word dict, used by evaluate_classification_accuracy to score
 # each candidate suffix against the gold label. ``hellaswag`` is intentionally
 # absent here: its candidates are per-example (row["endings"]) so there is no
 # fixed cross-example label vocabulary. See evaluate_hellaswag_accuracy.
+# ``mathlogicqa`` uses a fixed 4-way label vocabulary ({" А", " Б", " В", " Г"})
+# so it CAN use the standard cross-example scoring path.
 TASK_LABEL_WORDS = {
     "sst2": SST2_LABEL_WORDS,
     "boolq": BOOLQ_LABEL_WORDS,
+    "mathlogicqa": MATHLOGICQA_LABEL_WORDS,
 }
 
 # Task -> (Dataset class, label column name) for partitioned-loader factory.
@@ -245,6 +254,7 @@ TASK_DATASETS = {
     "sst2": (_SST2Dataset, "label"),
     "boolq": (_BoolQDataset, "label"),
     "hellaswag": (_HellaSwagDataset, "label"),
+    "mathlogicqa": (_MathLogicQADataset, "label"),
 }
 
 # Task -> default DataLoader kwargs for partitioned mode.
@@ -252,6 +262,7 @@ TASK_DEFAULTS = {
     "sst2": {"batch_size": 8, "max_length": 256},
     "boolq": {"batch_size": 4, "max_length": 512},
     "hellaswag": {"batch_size": 4, "max_length": 256},
+    "mathlogicqa": {"batch_size": 4, "max_length": 256},
 }
 
 
@@ -279,6 +290,15 @@ def _load_raw_dataset(task: str, split: str):
         # HellaSwag stores label as str ("0".."3"). Cast to int so downstream
         # numpy-array-of-labels code (Dirichlet/label-skew partitioning) works.
         return ds.map(lambda row: {"label": int(row["label"])})
+    if task == "mathlogicqa":
+        # MERA leaderboard hosts MathLogicQA under ai-forever/MERA. Gold labels
+        # come as "A"/"B"/"C"/"D" strings under row["outputs"]; we expose them
+        # as an integer "label" column so the partition utilities (which
+        # expect numpy-arrayable ints) work without further adaptation.
+        from dmezo.data.mathlogicqa import _gold_to_index
+
+        ds = load_dataset("ai-forever/MERA", "mathlogicqa", split=split)
+        return ds.map(lambda row: {"label": _gold_to_index(row.get("outputs", ""))})
     raise ValueError(f"Unknown task {task!r}. Supported: {sorted(TASK_DATASETS)}")
 
 
@@ -478,13 +498,22 @@ def evaluate_classification_accuracy(
                 if idx >= len(raw):
                     break
                 row = raw[idx]
-                gold_label = int(row["label"])
 
                 # Build the prompt (no suffix) so we can append each candidate.
                 if task == "sst2":
                     prompt = format_sst2_example(row["sentence"], label=None)
+                    gold_label = int(row["label"])
                 elif task == "boolq":
                     prompt = format_boolq_example(row["passage"], row["question"], label=None)
+                    gold_label = int(row["label"])
+                elif task == "mathlogicqa":
+                    from dmezo.data.mathlogicqa import (
+                        _extract_fields,
+                        format_mathlogicqa_prompt,
+                    )
+
+                    text, a, b, c, d, gold_label = _extract_fields(row)
+                    prompt = format_mathlogicqa_prompt(text, a, b, c, d)
                 else:  # pragma: no cover — guarded above
                     raise ValueError(f"Unknown task {task!r}")
 

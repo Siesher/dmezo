@@ -1,0 +1,41 @@
+# Qwen3-4B / MathLogicQA — centralized MeZO baseline на русском символическом reasoning.
+#
+# Task: 4-way symbolic logic + arithmetic reasoning (часть MERA, ai-forever/MERA).
+# Сложнее HellaSwag, потому что:
+# - **Reasoning, не recall** — нельзя «выучить» лексическим pattern matching.
+# - **Russian** — кросс-лингвистическая generality (наши SST-2/BoolQ/HellaSwag — английский).
+# - **Single-letter scoring** (А/Б/В/Г) — стандарт MERA/lm-evaluation-harness.
+#
+# Эта конфигурация — reference baseline. Если vanilla MeZO здесь diverge (как
+# на HellaSwag), это даст ещё одно подтверждение того, что D-MeZO-N rescue
+# работает не только на en commonsense, но и на ru symbolic reasoning.
+#
+# Random-guess accuracy: 25%. Qwen3-4B zero-shot baseline на MathLogicQA
+# обычно ~40-60% (модель умеет читать русский, но reasoning тяжело).
+
+experiment_name: dmezo_mathlogicqa_baseline
+seed: 42
+output_dir: experiments/03_sanity_qwen3_4b_mathlogicqa
+
+model:
+  name: Qwen/Qwen3-4B
+  dtype: bfloat16
+  flash_attention: false
+
+data:
+  task: mathlogicqa
+  batch_size: 4
+  max_length: 256
+  num_train_examples: 700      # MathLogicQA train ~ 700-1000 examples
+  num_eval_examples: 200
+
+mezo:
+  lr: 3.0e-7
+  eps: 1.0e-3
+  weight_decay: 0.0
+
+train:
+  steps: 1000
+  eval_every: 100
+  log_every: 20
+  eval_batches: 20
