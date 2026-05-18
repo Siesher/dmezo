@@ -1,0 +1,42 @@
+# Qwen3.5-4B-Base / MathLogicQA — centralized MeZO baseline на ru symbolic reasoning.
+#
+# Task: 4-way symbolic logic + arithmetic reasoning (часть MERA).
+# Этот эксперимент пересекает **три новых оси одновременно**:
+#   1. Cross-arch:    hybrid linear-attention (24 linear + 8 full) на reasoning
+#                     (Day 5/8 был только на SST-2 для этой арх).
+#   2. Cross-lingual: русский язык (наши SST-2/BoolQ/HellaSwag — английский).
+#   3. Cross-domain:  symbolic logic (нельзя сводить к лексическому recall).
+#
+# Это первый known MeZO test на hybrid linear-attention + reasoning + russian.
+# Если работает — paper-claim universality максимально сильный.
+#
+# Random-guess accuracy: 25%. Qwen3.5-4B-Base zero-shot на MathLogicQA
+# обычно ~40-55% (модель умеет читать русский, но reasoning challenging,
+# особенно для linear-attn которая компрессит history).
+
+experiment_name: dmezo_mathlogicqa_baseline
+seed: 42
+output_dir: experiments/03_sanity_qwen3_5_4b_base_mathlogicqa
+
+model:
+  name: Qwen/Qwen3.5-4B-Base
+  dtype: bfloat16
+  flash_attention: false
+
+data:
+  task: mathlogicqa
+  batch_size: 4
+  max_length: 256
+  num_train_examples: 700
+  num_eval_examples: 200
+
+mezo:
+  lr: 3.0e-7
+  eps: 1.0e-3
+  weight_decay: 0.0
+
+train:
+  steps: 1000
+  eval_every: 100
+  log_every: 20
+  eval_batches: 20

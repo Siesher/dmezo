@@ -1,0 +1,59 @@
+# D-MeZO-N v1 на Qwen3.5-4B-Base + MathLogicQA — финальная generality validation.
+#
+# Этот run закрывает paper-claim universality D-MeZO-N. После него имеем:
+#
+# | Task          | Lang | Domain          | Arch                | D-MeZO-N v1 work? |
+# |---------------|------|-----------------|---------------------|-------------------|
+# | SST-2         | EN   | sentiment       | Qwen3-4B + Qwen3.5  | ✅ Day 1/5/8       |
+# | BoolQ         | EN   | passage QA      | Qwen3-4B + Qwen3.5  | ✅ 2×2 BoolQ       |
+# | HellaSwag     | EN   | commonsense     | Qwen3-4B            | ✅ 2026-05-18      |
+# | **MathLogicQA**| **RU**| **symb. logic** | **Qwen3.5-4B-Base** | **THIS RUN**      |
+#
+# Если PASS — пятая ортогональная ось (cross-arch + cross-lingual + cross-domain)
+# закрыта одним экспериментом. Recipe = тот же R1d из Day 8 + HellaSwag.
+#
+# Loader (`_load_vl_for_text_task`) автоматически замораживает 24-слойный ViT;
+# MeZO perturbает только text decoder (32 слоя, 24 linear-attn + 8 full-attn).
+#
+# Compute: ~20-25 мин на Blackwell, ~5-8 units.
+
+experiment_name: dmezo_mathlogicqa_nest_decay
+seed: 42
+output_dir: experiments/09_dmezo_4c_complete_iid_qwen3_5_4b_base_mathlogicqa_nest_decay
+
+model:
+  name: Qwen/Qwen3.5-4B-Base
+  dtype: bfloat16
+  flash_attention: false
+
+data:
+  task: mathlogicqa
+  batch_size: 4
+  max_length: 256
+  num_train_examples: 700
+  num_eval_examples: 200
+  partition_mode: iid
+
+mezo:
+  lr: 3.0e-7
+  eps: 1.0e-3
+  weight_decay: 0.0
+  rho_clip: 50.0
+
+nesterov:
+  enabled: true
+  beta: 0.9
+  beta_end: 0.0
+  look_ahead: false
+
+federated:
+  num_clients: 4
+  topology: complete
+  consensus_mode: weight_avg
+  local_steps: 1
+
+train:
+  num_rounds: 1000
+  eval_every: 100
+  log_every: 20
+  eval_batches: 20
