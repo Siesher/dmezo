@@ -295,9 +295,14 @@ def _load_raw_dataset(task: str, split: str):
         # come as "A"/"B"/"C"/"D" strings under row["outputs"]; we expose them
         # as an integer "label" column so the partition utilities (which
         # expect numpy-arrayable ints) work without further adaptation.
+        #
+        # MERA only ships 'train' and 'test' splits — no 'validation'. Map the
+        # conventional eval name to 'test' so the rest of the pipeline (which
+        # asks for split='validation') works without script changes.
         from dmezo.data.mathlogicqa import _gold_to_index
 
-        ds = load_dataset("ai-forever/MERA", "mathlogicqa", split=split)
+        effective_split = "test" if split == "validation" else split
+        ds = load_dataset("ai-forever/MERA", "mathlogicqa", split=effective_split)
         return ds.map(lambda row: {"label": _gold_to_index(row.get("outputs", ""))})
     raise ValueError(f"Unknown task {task!r}. Supported: {sorted(TASK_DATASETS)}")
 
