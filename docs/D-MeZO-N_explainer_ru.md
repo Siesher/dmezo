@@ -683,6 +683,8 @@ $$
 | Day 8 R1d | **β-decay 0.9→0 + clip50** | **0.1291** | — | **monotonic, beats vanilla 0.1381 by 6.5%** |
 | **2026-05-18 HellaSwag** | Qwen3-4B / 4-way commonsense / centralized vanilla | **2.7112** ⬆ | **−5.5%** | **DIVERGED**, acc 0.6625 → 0.6375 (−2.5pp) |
 | **2026-05-18 HellaSwag** | Qwen3-4B / 4-way commonsense / **D-MeZO-N v1** | **2.4959** ⬇ | **+2.85%** | **CONVERGED**, acc 0.6625 → 0.7000 (+3.75pp), **+6.25pp vs centralized** |
+| **2026-05-18 MathLogicQA** | Qwen3.5-4B-Base / 4-way Russian symbolic logic / centralized vanilla | **1.4331** ⬇ | **+49.7%** | **CONVERGED**, acc 0.3750 → 0.3750 (loss-acc decoupled) |
+| **2026-05-18 MathLogicQA** | Qwen3.5-4B-Base / 4-way Russian symbolic logic / **D-MeZO-N v1** | 1.5155 ⬇ | +46.8% | **CONVERGED**, acc 0.3750 → 0.3875 (+1.25pp), peak 0.4125 @R500, **+1.25pp vs centralized** |
 
 ### 8.3 Negative findings (важная часть paper)
 
