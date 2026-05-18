@@ -25,6 +25,24 @@ SUPPORTED_MODELS = {
         "fp16_gb": 16.0,
         "loader_kind": "causal_lm",
     },
+    "Qwen/Qwen3.5-0.8B": {
+        "family": "qwen35",
+        "size_b": 0.8,
+        "fp16_gb": 1.8,
+        "loader_kind": "vl_text_task",
+    },
+    "Qwen/Qwen3.5-0.8B-Base": {
+        "family": "qwen35",
+        "size_b": 0.8,
+        "fp16_gb": 1.8,
+        "loader_kind": "vl_text_task",
+    },
+    "Qwen/Qwen3.5-2B": {
+        "family": "qwen35",
+        "size_b": 2.3,
+        "fp16_gb": 4.8,
+        "loader_kind": "vl_text_task",
+    },
     "Qwen/Qwen3.5-4B": {
         "family": "qwen35",
         "size_b": 4.7,
