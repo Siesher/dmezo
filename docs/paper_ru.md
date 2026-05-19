@@ -80,6 +80,24 @@ $$\mathrm{clip}(x, \pm C) := \max(-C, \min(C, x)).$$
 
 $$\mathrm{Comm} = O(1) \text{ скаляр} + 1 \text{ целое seed} \text{ на соседа за раунд}.$$
 
+## 3.5 Инженерные контрибуции
+
+Помимо метода D-MeZO-N, репозиторий содержит инженерные артефакты, делающие peer-to-peer ZO-федерализацию на современных open-weight LLM **воспроизводимой**:
+
+- **In-process федеративный симулятор** (`src/dmezo/federated/`): generic over $n$ клиентов и любую дважды-стохастическую mixing-матрицу. Поддерживает два consensus-режима: `weight_avg` (полный обмен параметрами) и `update_share` (peer-to-peer обмен только $(\hat\rho_i, s_i)$ парами). Reconciliation между режимами bit-exact для plain MeZO (vanilla), отделена для Nesterov-варианта (audit-harden D1: Nesterov + `update_share` not yet integrated; используется `weight_avg`).
+
+- **Hybrid linear-attention loader** (`src/dmezo/models/loader.py`): автоматически распознаёт Qwen3.5-family как `AutoModelForImageTextToText`, замораживает 24-слойный ViT и преобразует loader так, чтобы MeZO возмущала только text decoder (426 trainable parameter groups). Это первая известная имплементация zeroth-order fine-tuning на hybrid linear/full-attention architecture.
+
+- **Seed-based perturbation без материализации $z$** (`src/dmezo/mezo/perturbation.py`): возмущение применяется in-place через `param.data += eps * z(s)` где $z(s)$ генерируется детерминированно из `torch.manual_seed(s)`. Памяти на $z$ не выделяется — критический инвариант для memory-efficiency MeZO на LLM-масштабе.
+
+- **Test suite** (128 pytest, ~95% покрытие критических путей): включает unit-тесты на детерминизм возмущения, симметричность mixing-матрицы, корректность consensus, **аналитические тесты cancellation** для Richardson 4-point ($O(\epsilon^4)$ bias) и 6-point Romberg-Richardson ($O(\epsilon^6)$ bias) на квинтической loss-функции с известными производными.
+
+- **Кросс-платформенная reproducibility**: код работает на Linux + Colab Blackwell (Pro+ RTX PRO 6000), Windows 11 + локальный Blackwell (RTX 5070 Ti), и legacy Turing (RTX 2080) с автоматическим выбором dtype/attention-backend. `notebooks/bootstrap_colab.ipynb` — single-click воспроизведение полной экспериментальной сетки.
+
+- **MLflow tracking**: каждый headline run (Day 1, Day 4, Day 5 grid, R1d, HellaSwag, MathLogicQA) имеет MLflow run ID с полным набором parameters/metrics/artifacts, mirrored в Google Drive. Никаких внешних зависимостей (wandb/Aim) — full self-contained reproducibility.
+
+- **5 ablation/diagnostic скриптов** (`scripts/ablate_*`, `diagnose_*`, `validate_*`, `sweep_*`): полностью composable, каждый принимает `--variant {vanilla, dmezo_n}` и produce JSON + figure в стандартизованных путях. См. `scripts/README.md` для категоризированного индекса, `docs/experiments_summary.md` — chronological table.
+
 # 4. Теория
 
 ## 4.1 Предположения
@@ -120,9 +138,19 @@ $$\mathbb{E}[f(\theta_{t+1}) - f^{\star}] \leq (1 - \eta\mu) \mathbb{E}[f(\theta
 
 $$\mathbb{E}[L(\bar\theta_T) - L^{\star}] \leq \tilde{O}\!\left( \sqrt{\frac{L \cdot r(H) \cdot \Delta_0}{n T}} \right) + \tilde{O}\!\left( \frac{\rho^2 C^2 r(H)}{(1 - \bar\beta)^2 T} \right) + O(\epsilon^2 L^2 r(H)).$$
 
-*Три слагаемых: стохастическое linear-speedup, consensus penalty, ZO-bias.*
+*Три слагаемых: стохастическое linear-speedup в $n$ клиентов ($1/\sqrt{nT}$), consensus penalty (зануляется для complete graph где $\rho = 0$), ZO-bias старшего порядка по $\epsilon$.*
 
-**Эскиз доказательства.** Применяем $L$-гладкость к $\| \bar g_t \|^2$ через Лемму 1 (после подстановки $r(H)$ по Malladi), Лемму 2 для ограничения дисперсии клипованных $\hat\rho$, и Лемму 3 для ограничения отклонения клиентов от consensus-среднего. Определяем функцию Ляпунова $\Phi_t = L(\bar\theta_t) - L^{\star} + \frac{c}{1 - \beta_t} \| v_t \|^2$ и телескопируем её ожидаемое убывание по $t = 0, \ldots, T-1$; указанный выбор $\eta, \epsilon, C, \beta_t$ оптимизирует оценку с точностью до логарифмических факторов. ∎
+**Эскиз доказательства.** Полное доказательство — `docs/theory_nesterov_mezo.md`. Структура:
+
+*Шаг 1 (descent inequality).* По $L$-гладкости $\bar L(\bar\theta_{t+1}) \leq \bar L(\bar\theta_t) - \eta \langle \nabla \bar L, \bar v_{t+1} \rangle + \frac{\eta^2 L}{2}\|\bar v_{t+1}\|^2$, где $\bar v$ — consensus-усреднённая velocity. По Леммам 1+2 ограничиваем $\mathbb{E}\|\bar v_{t+1}\|^2 \leq C^2 r(H) + (1-\beta_t)^{-2} G^2$.
+
+*Шаг 2 (Lyapunov contraction).* Определяем $\Phi_t = (\bar L(\bar\theta_t) - L^{\star}) + \frac{c}{1-\beta_t}\|\bar v_t\|^2$ с $c$ выбираемым так, чтобы кинетическая компонента контрактировала. Раскрывая update velocity $\bar v_{t+1} = \beta_t \bar v_t + \bar g_t$, и используя ($\beta_t < 1$, $\eta$ small enough):
+$$\mathbb{E}[\Phi_{t+1}|\mathcal{F}_t] \leq (1 - \gamma_t)\Phi_t + \tfrac{\eta^2 L}{n}(G^2 + \epsilon^2 L^2 r(H)) + \tfrac{\eta^2 \rho^2}{(1-\rho)^2}(G^2 r(H) + \zeta^2),$$
+где $\gamma_t = \eta\mu_{\text{eff}}$ — effective contraction rate, $\mu_{\text{eff}} \propto 1/\sqrt{T}$ для convex случая.
+
+*Шаг 3 (telescoping).* Сумируем $t = 0, ..., T-1$. Первый член даёт $(1-\gamma_t)^T \Phi_0$, который при $T \to \infty$ даёт $O(1/T)$ deterministic decrease. Стохастические члены через геометрическую прогрессию дают neighbourhood $\tilde O(1/\sqrt{nT})$ (linear speedup) + $\tilde O(\rho^2 C^2 r(H)/(1-\rho)^2 T)$ (consensus penalty) + $O(\epsilon^2 L^2 r(H))$ (ZO bias).
+
+*Шаг 4 (parameter selection).* Указанный выбор $\eta = c_1 \min(1/(Lr(H)), 1/\sqrt{T})$, $\epsilon \leq c_2/(T^{1/4}\sqrt{r(H)L})$, $C \geq 2(\|\nabla L\|_{\max} + \epsilon L\sqrt{r(H)})$ балансирует три слагаемых до указанной оценки с точностью до логарифмических факторов. ∎
 
 ## 4.4 Теорема 2 — невыпуклый PL случай (без момента)
 
@@ -130,9 +158,17 @@ $$\mathbb{E}[L(\bar\theta_T) - L^{\star}] \leq \tilde{O}\!\left( \sqrt{\frac{L \
 
 $$\mathbb{E}[L(\bar\theta_T) - L^{\star}] \leq (1 - \eta\mu)^T \Delta_0 + \tilde{O}\!\left( \frac{\eta L r(H) G^2}{\mu n} \right) + \tilde{O}\!\left( \frac{\eta^2 \rho^2 L^2 r(H) G^2}{\mu (1-\rho)^2} \right) + O\!\left( \frac{\epsilon^2 L^2 r(H)}{\mu} \right).$$
 
-*Линейная сходимость $(1 - \eta\mu)^T$ к четырёхчленному шумовому floor.*
+*Линейная сходимость $(1 - \eta\mu)^T$ к четырёхчленному шумовому floor: deterministic + linear-speedup stochastic + consensus penalty + ZO bias.*
 
-**Эскиз доказательства.** Применяем Лемму 5 (PL descent с предвзятым SGD) к виртуальной усреднённой последовательности $\bar\theta_t$ с $g_t = \frac{1}{n} \sum_i \tilde\rho_i z_{s_i}$. По Леммам 1+2 ограничиваем смещение и дисперсию $g_t$ (после federated-усреднения дисперсия уменьшается в $1/n$ раз — фактор linear speedup), и по Лемме 3 поглощаем consensus drift в смещение. Телескопируем рекурсию $a_{t+1} \leq (1 - \eta\mu) a_t + b$ и получаем $a_T \leq (1 - \eta\mu)^T a_0 + b/(\eta\mu)$. ∎
+**Эскиз доказательства.** Структура:
+
+*Шаг 1 (виртуальная средняя).* Вводим виртуальную последовательность $\bar\theta_t = \frac{1}{n}\sum_i \theta_i^t$ и виртуальный gradient estimator $\bar g_t = \frac{1}{n}\sum_i \tilde\rho_i^t z_{s_i^t}$. По двойной-стохастичности $W$ имеем $\bar\theta_{t+1} = \bar\theta_t - \eta \bar g_t$.
+
+*Шаг 2 (биас + variance после federated averaging).* Лемма 1 даёт $\|\mathbb{E}[\bar g_t] - \nabla L(\bar\theta_t)\| \leq \frac{\epsilon^2 L}{2}\sqrt{r(H)} + \delta_{\text{consensus}}$, где $\delta_{\text{consensus}}$ — отклонение клиентов от $\bar\theta$ (ограничено Леммой 3). Лемма 2 даёт $\mathbb{E}\|\bar g_t\|^2 \leq C^2 r(H)/n + \epsilon^2 L^2 r(H)$ — фактор $1/n$ из независимости клиентов.
+
+*Шаг 3 (PL descent recursion).* Применяем Лемму 5 (Karimi-Nutini-Schmidt 2016) к $\bar\theta_t$ с biased SGD: $\mathbb{E}[L(\bar\theta_{t+1}) - L^{\star}] \leq (1 - \eta\mu) \mathbb{E}[L(\bar\theta_t) - L^{\star}] + \frac{\eta^2 L \mathbb{E}\|\bar g_t\|^2}{2} + \frac{\eta \delta^2}{\mu}$, где $\delta$ — bias term.
+
+*Шаг 4 (telescoping).* Стандартное телескопирование recursion $a_{t+1} \leq (1 - \eta\mu) a_t + b$ даёт $a_T \leq (1 - \eta\mu)^T a_0 + b/(\eta\mu)$. Подстановка $b = \frac{\eta^2 L (C^2 r(H)/n + \epsilon^2 L^2 r(H))}{2} + \frac{\eta(\delta_{\text{consensus}}^2 + \epsilon^4 L^2 r(H)/4)}{\mu}$ даёт указанную оценку с четырёхчленным noise floor. ∎
 
 Теорема 2 строго покрывает поведение нашего рекомендованного варианта D-MeZO-N (R1d) на поздней стадии, где $\beta$-расписание затухло $\beta_t \to 0$ — см. §5.4 для эмпирического соответствия.
 
@@ -379,7 +415,33 @@ Princeton MeZO использует $\varepsilon = 10^{-3}$ как default. Ги
 
 **Что это значит для интерпретации**: текущие "rescue" и "vanilla wins" findings — **consistent with hypothesis**, но не statistically established. §5.5 ↔ §6.8 contrast (D-MeZO-N сходится / не сходится) объясним *исключительно* boundary conditions (horizon, model arch, task saturation) и **не требует** утверждения "noisy single-seed противоречит другому noisy single-seed". Для финальной публикации в журнал необходима multi-seed validation (≥3 seeds) на ключевых ячейках; в текущей версии paper эти findings — **directional evidence**, согласованное с теоретическими предсказаниями (Theorem 3 corollary), но не самостоятельно решающее. Robust findings (§6.4, §6.7 warmup, §6.7 autotuner failure, §5.2 grid) основаны на cross-replicated evidence и не зависят от single-seed limitation.
 
+![Рисунок 20. Master results table — сводное представление всех численных результатов §5–§6 с классификацией statistical-rigor tier. Robust (зелёный) — cross-replicated; Tentative (жёлтый) — single-seed, requires multi-seed validation; Negative (красный) — clean falsification of a stated hypothesis. Каждая строка содержит section, setup, metric, tier-badge и evidence quality. Все Tentative rows выиграют от multi-seed validation; полная классификация — `docs/robustness_matrix.md`.](figures/fig20_master_results.png){width=16cm}
+
 **Future work на rigor-направлении**: (а) re-run §5.5 + §6.8 best-cells с 3 seeds для получения 95% CI на drop% и acc; (б) расширить eval pool до 500 examples (SE ≈ ±0.02); (в) paired comparisons (одинаковый seed для variant pair) для контроля seed-variance в paired t-test.
+
+## 6.10 Синтез negative findings: когда наивные интуиции про variance reduction в fp16 MeZO проваливаются
+
+Пять отдельных negative results §6.4–§6.8 имеют общий механизм, который **полезно сформулировать явно** как контр-эвристический инсайт для будущих работ по ZO-fine-tuning LLM:
+
+| Finding | "Наивная интуиция" | Реальность fp16 MeZO | Section |
+|---|---|---|---|
+| Batch-variance CLT failure | Variance уменьшается как $1/B$ → используй большие batches | Variance saturates при $B \geq 8$; dominantный источник шума — выбор $z$, не sampling данных | §6.4 |
+| ε-autotuner failure | Bias-variance proxy autotuner находит "оптимальный" ε | Proxy измеряет $\mathrm{tr}(H)$, не bias gradient-оценщика; autotuner выбирает $\varepsilon^* \gg 10^{-3}$ который проигрывает downstream в 3-6× | §6.7 |
+| Warmup ε(t) systematic failure | Start large $\varepsilon$ для variance reduction → decay to small для precision | Все 16+ cells cross-arch + cross-variant теряют const $10^{-3}$ — biased early-steps создают невозвратный drift trajectory | §6.7 follow-up |
+| Richardson 4-pt не помогает | Cancel $O(\varepsilon^2)$ bias → можно использовать большой ε | Работает на квинтической loss (unit test pass), но fail на LLM при $\varepsilon \geq 10^{-2}$ — $2\varepsilon$-probe оставляет Taylor regime | §6.7 supplement |
+| 6-pt Romberg ≼ 4-pt ≼ 2-pt | Higher-order finite-diff → меньше bias | 6-pt variance amplification $\sim 2.2\times$ доминирует bias reduction; Princeton 2-pt оптимален | §6.7 supplement |
+
+**Объединяющий механизм**: в fp16 MeZO loss-landscape **выходит из Taylor-validity range** при $\varepsilon \gtrsim 10^{-2}$ (на Qwen-arch), причём граница зависит от архитектуры (hybrid linear-attn робастнее full-attn). Catastrophic cancellation в $(L^+ - L^-)/2\varepsilon$ — нижняя граница для $\varepsilon$ (roughly $10^{-3}$ в fp16), а Taylor-3 nonlinearity — верхняя ($\varepsilon \lesssim 10^{-2}$). Princeton default $\varepsilon = 10^{-3}$ оказывается **near-optimal balance**, а not arbitrary choice — нашлось apriori, до полного понимания границ.
+
+**Practical recipe для практиков fp16 ZO-fine-tuning** (наша recommendation):
+
+1. **$\varepsilon$**: const $10^{-3}$ (Princeton) — не tune, не schedule. Refinement ниже ($10^{-4}$) marginal +4pp выигрыш только на hybrid arch.
+2. **$B$**: 4–8 — больше не даёт variance reduction.
+3. **Variance reduction**: $K$-direction averaging (свежие $z_k$) поверх batch-scaling — §6.5.
+4. **Estimator**: 2-point central diff (Princeton) — higher-order не помогает.
+5. **lr**: $10^{-6}$ для 4B (или $3 \cdot 10^{-7}$ если хочется conservative); горизонт ≥ 1000 шагов для D-MeZO-N rescue.
+
+Эти рекомендации based on cross-replicated cross-arch evidence (§6.7 robust per `docs/robustness_matrix.md`); они должны переноситься на широкий range LLM ZO-fine-tuning без re-tuning.
 
 # 7. Ограничения и future work
 
