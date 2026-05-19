@@ -304,6 +304,100 @@ def mezo_step_richardson(
     return seed, projected_grad_R, loss_plus
 
 
+def mezo_step_6point(
+    model: nn.Module,
+    inputs: dict,
+    loss_fn: Callable[[nn.Module, torch.Tensor], torch.Tensor],
+    config: MeZOConfig,
+    *,
+    rng: np.random.Generator | None = None,
+) -> tuple[int, float, float]:
+    """6-point extended-Richardson: cancels both O(eps^2) and O(eps^4) bias.
+
+    Combines three central-diff probes at eps, 2*eps, 4*eps using the
+    recursive Romberg-Richardson schedule
+
+        T_1(h)   = (4 * rho(h) - rho(2h)) / 3                  bias O(h^4)
+        T_1(2h)  = (4 * rho(2h) - rho(4h)) / 3                 bias O(h^4)
+        T_2(h)   = (16 * T_1(h) - T_1(2h)) / 15                bias O(h^6)
+
+    Expanded:
+
+        rho_6 = (64 * rho(eps) - 20 * rho(2*eps) + rho(4*eps)) / 45
+
+    Verified by Taylor expansion: the eps^2 and eps^4 coefficients vanish
+    identically (64 - 80 + 16 = 0 and 64 - 320 + 256 = 0). Residual bias
+    is O(eps^6). Variance is amplified by ``(64^2 + 20^2 + 1) / 45^2 ~= 2.22x``
+    relative to a single rho(eps) estimate.
+
+    The Richardson 4-point ablation (`docs/figures/fig17_*`) found that the
+    4-point variant fails outside Taylor-validity (eps >= 1e-2 on Qwen3-0.6B
+    full-attn). For 6-point the outermost probe is at ``4 * eps``, twice as
+    far as 4-point's ``2 * eps``, so it's MORE susceptible to leaving the
+    Taylor regime. The hypothesis worth testing: on hybrid linear-attention
+    models where Taylor validity extends further (§6.7 cliff at eps=3e-1
+    instead of eps=3e-1 → eps=1.0), 6-point may have a usable window at
+    eps ~ 1e-3 ... 3e-3 with bias suppression to O(eps^6) ~= 1e-18.
+
+    Cost: 6 forward passes per step (vs 2 for ``mezo_step``, 4 for
+    ``mezo_step_richardson``). For equal compute use N/3 steps.
+
+    Args:
+        model: HF model with ``requires_grad`` parameters.
+        inputs: Input batch passed to ``loss_fn``.
+        loss_fn: ``(model, inputs) -> scalar loss``.
+        config: MeZO hyperparameters. ``config.eps`` is the inner probe;
+            outer probes use 2*eps and 4*eps with the SAME ``z``.
+        rng: Optional numpy Generator for the per-step seed.
+
+    Returns:
+        ``(seed, projected_grad_6, loss_plus_at_eps)``. Direction z is
+        regenerated from the same seed by ``mezo_update``.
+    """
+    if config.rho_clip is not None and config.rho_clip <= 0:
+        raise ValueError(
+            f"rho_clip must be positive or None; got {config.rho_clip}. "
+            "Use None to disable clipping."
+        )
+    if rng is None:
+        seed = int(np.random.randint(0, 2**31 - 1))
+    else:
+        seed = int(rng.integers(0, 2**31 - 1))
+
+    named = _collect_optim_params(model)
+    eps = config.eps
+
+    # Inner probe at +/- eps.
+    perturb_parameters(named, seed=seed, scaling_factor=+1.0, eps=eps)
+    L1p = _forward_loss(model, inputs, loss_fn)
+    perturb_parameters(named, seed=seed, scaling_factor=-2.0, eps=eps)
+    L1m = _forward_loss(model, inputs, loss_fn)
+    perturb_parameters(named, seed=seed, scaling_factor=+1.0, eps=eps)  # restore
+
+    # Middle probe at +/- 2*eps.
+    perturb_parameters(named, seed=seed, scaling_factor=+2.0, eps=eps)
+    L2p = _forward_loss(model, inputs, loss_fn)
+    perturb_parameters(named, seed=seed, scaling_factor=-4.0, eps=eps)
+    L2m = _forward_loss(model, inputs, loss_fn)
+    perturb_parameters(named, seed=seed, scaling_factor=+2.0, eps=eps)  # restore
+
+    # Outer probe at +/- 4*eps.
+    perturb_parameters(named, seed=seed, scaling_factor=+4.0, eps=eps)
+    L3p = _forward_loss(model, inputs, loss_fn)
+    perturb_parameters(named, seed=seed, scaling_factor=-8.0, eps=eps)
+    L3m = _forward_loss(model, inputs, loss_fn)
+    perturb_parameters(named, seed=seed, scaling_factor=+4.0, eps=eps)  # restore
+
+    rho_1 = (L1p - L1m) / (2.0 * eps)
+    rho_2 = (L2p - L2m) / (4.0 * eps)
+    rho_3 = (L3p - L3m) / (8.0 * eps)
+    projected_grad_6 = (64.0 * rho_1 - 20.0 * rho_2 + rho_3) / 45.0
+
+    if config.rho_clip is not None:
+        projected_grad_6 = max(-config.rho_clip, min(config.rho_clip, projected_grad_6))
+    return seed, projected_grad_6, L1p
+
+
 def mezo_update(
     model: nn.Module,
     seed: int,

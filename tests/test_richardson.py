@@ -20,7 +20,12 @@ import numpy as np
 import torch
 from torch import nn
 
-from dmezo.mezo.step import MeZOConfig, mezo_step, mezo_step_richardson
+from dmezo.mezo.step import (
+    MeZOConfig,
+    mezo_step,
+    mezo_step_6point,
+    mezo_step_richardson,
+)
 
 
 def _smooth_model_with_cubic_loss():
@@ -188,3 +193,97 @@ class TestRichardsonBiasCancellation:
             f"At tiny eps={cfg.eps}, methods should match. "
             f"rho_2pt={rho_2pt}, rho_R={rho_R}"
         )
+
+
+class Test6PointBiasCancellation:
+    """6-point extended Richardson cancels BOTH O(eps^2) and O(eps^4) bias."""
+
+    def _quintic_loss(self, model, batch):
+        """L(w) = w + 0.5 w^2 + (25/3) w^3 + 5 w^4 + 0.6 w^5.
+
+        Has non-zero third AND fifth derivatives so the eps^4 term that 4-point
+        Richardson leaves in is non-negligible at moderate eps. 6-point should
+        eliminate it; 4-point should not.
+
+        Analytical L'(w) = 1 + w + 25 w^2 + 20 w^3 + 3 w^4.
+        """
+        w = next(model.parameters()).reshape(())
+        return (
+            w + 0.5 * w * w + (25.0 / 3.0) * w * w * w
+            + 5.0 * w * w * w * w + 0.6 * w * w * w * w * w
+        )
+
+    def _ground_truth_projected_grad(self, model, z_scalar: float) -> float:
+        """L'(w) * z at the current w for _quintic_loss."""
+        w = float(next(model.parameters()).item())
+        grad = 1.0 + w + 25.0 * w * w + 20.0 * w * w * w + 3.0 * w * w * w * w
+        return grad * z_scalar
+
+    def _extract_z_scalar(self, seed: int, dtype: torch.dtype) -> float:
+        torch.manual_seed(seed)
+        z = torch.normal(mean=0.0, std=1.0, size=(1, 1), device="cpu", dtype=dtype)
+        return float(z.item())
+
+    def test_6point_beats_richardson_at_eps_4order_regime(self):
+        """At eps where 4-point Richardson's residual O(eps^4) bias dominates,
+        6-point should be substantially more accurate."""
+        # eps small enough to stay in Taylor regime (no expansion blow-up)
+        # but big enough that the O(eps^4) term is measurable.
+        eps = 0.05
+        rng_seed = 21
+
+        # 2-point
+        m1 = _smooth_model_with_cubic_loss()
+        with torch.no_grad():
+            next(m1.parameters()).fill_(0.4)
+        cfg = MeZOConfig(lr=1e-3, eps=eps)
+        seed_2pt, rho_2pt, _ = mezo_step(
+            m1, {}, self._quintic_loss, cfg, rng=np.random.default_rng(rng_seed)
+        )
+
+        # 4-point Richardson
+        m2 = _smooth_model_with_cubic_loss()
+        with torch.no_grad():
+            next(m2.parameters()).fill_(0.4)
+        _, rho_R, _ = mezo_step_richardson(
+            m2, {}, self._quintic_loss, cfg, rng=np.random.default_rng(rng_seed)
+        )
+
+        # 6-point
+        m3 = _smooth_model_with_cubic_loss()
+        with torch.no_grad():
+            next(m3.parameters()).fill_(0.4)
+        _, rho_6, _ = mezo_step_6point(
+            m3, {}, self._quintic_loss, cfg, rng=np.random.default_rng(rng_seed)
+        )
+
+        z_scalar = self._extract_z_scalar(seed_2pt, next(m1.parameters()).dtype)
+        rho_true = self._ground_truth_projected_grad(m1, z_scalar)
+
+        err_2pt = abs(rho_2pt - rho_true)
+        err_R = abs(rho_R - rho_true)
+        err_6 = abs(rho_6 - rho_true)
+        # We expect: err_6 < err_R < err_2pt (each higher-order method more
+        # accurate). The 6-point gap to true rho should be much smaller than
+        # the Richardson gap at this eps.
+        assert err_6 < err_R, (
+            f"6-point ({err_6:.4e}) should beat 4-point Richardson ({err_R:.4e}) "
+            f"at eps={eps}. true={rho_true:.4f}, rho_2pt={rho_2pt:.4f}, "
+            f"rho_R={rho_R:.4f}, rho_6={rho_6:.4f}"
+        )
+        assert err_R < err_2pt, (
+            f"4-point Richardson ({err_R:.4e}) should beat 2-point ({err_2pt:.4e}) "
+            f"at eps={eps}."
+        )
+
+    def test_6point_determinism(self):
+        """Same rng seed -> same (seed, rho_6)."""
+        m1 = _smooth_model_with_cubic_loss()
+        m2 = _smooth_model_with_cubic_loss()
+        cfg = MeZOConfig(lr=1e-3, eps=1e-3)
+        s1, r1, _ = mezo_step_6point(m1, {}, self._quintic_loss, cfg,
+                                     rng=np.random.default_rng(99))
+        s2, r2, _ = mezo_step_6point(m2, {}, self._quintic_loss, cfg,
+                                     rng=np.random.default_rng(99))
+        assert s1 == s2
+        assert abs(r1 - r2) < 1e-9

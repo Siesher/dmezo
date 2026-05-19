@@ -55,6 +55,7 @@ from dmezo.data.superglue import (  # noqa: E402
 from dmezo.mezo.step import (  # noqa: E402
     MeZOConfig,
     mezo_step,
+    mezo_step_6point,
     mezo_step_richardson,
     mezo_update,
 )
@@ -109,8 +110,15 @@ def _train(
         p.requires_grad_(True)
 
     cfg = MeZOConfig(lr=lr, eps=eps)
-    step_fn = mezo_step_richardson if method.startswith("richardson") else mezo_step
-    forwards_per_step = 4 if method.startswith("richardson") else 2
+    if method.startswith("6point"):
+        step_fn = mezo_step_6point
+        forwards_per_step = 6
+    elif method.startswith("richardson"):
+        step_fn = mezo_step_richardson
+        forwards_per_step = 4
+    else:
+        step_fn = mezo_step
+        forwards_per_step = 2
 
     eval_batch = batches[0]
     L0 = _eval_loss(model, eval_batch)
@@ -196,12 +204,19 @@ def main() -> int:
     z_seeds = [int(rng_z.integers(0, 2**31 - 1)) for _ in range(args.steps)]
     logger.info(f"  {len(batches)} batches, {len(z_seeds)} z-seeds")
 
-    # Run grid: for each eps, run three configurations.
+    # Run grid: for each eps, run five configurations
+    # (2-pt, 4-pt step-eq & compute-eq, 6-pt step-eq & compute-eq).
     cells: dict[str, dict] = {}
+    method_steps = {
+        "2point":                  args.steps,
+        "richardson_step_eq":      args.steps,
+        "richardson_compute_eq":   args.steps // 2,
+        "6point_step_eq":          args.steps,
+        "6point_compute_eq":       args.steps // 3,
+    }
     for eps in args.epsilons:
-        for method in ("2point", "richardson_step_eq", "richardson_compute_eq"):
+        for method, n_steps in method_steps.items():
             key = f"{method}|eps={eps:.0e}"
-            n_steps = args.steps if method != "richardson_compute_eq" else args.steps // 2
             logger.info(f"=== {key}  ({n_steps} steps) ===")
             cells[key] = _train(
                 model_id=args.model, dtype=dtype, method=method,
@@ -236,16 +251,20 @@ def main() -> int:
         "2point": "#d62728",
         "richardson_step_eq": "#2ca02c",
         "richardson_compute_eq": "#1f77b4",
+        "6point_step_eq": "#9467bd",
+        "6point_compute_eq": "#8c564b",
     }
     method_labels = {
-        "2point": f"2-point (N={args.steps})",
-        "richardson_step_eq": f"Richardson step-eq (N={args.steps}, 2× compute)",
-        "richardson_compute_eq": f"Richardson compute-eq (N={args.steps // 2})",
+        "2point": f"2-pt (N={args.steps})",
+        "richardson_step_eq": f"4-pt step-eq (N={args.steps}, 2x)",
+        "richardson_compute_eq": f"4-pt compute-eq (N={args.steps // 2})",
+        "6point_step_eq": f"6-pt step-eq (N={args.steps}, 3x)",
+        "6point_compute_eq": f"6-pt compute-eq (N={args.steps // 3})",
     }
 
     for col_idx, eps in enumerate(args.epsilons):
         ax = axes[col_idx]
-        for method in ("2point", "richardson_step_eq", "richardson_compute_eq"):
+        for method in method_colours.keys():
             key = f"{method}|eps={eps:.0e}"
             r = cells[key]
             steps = np.array(r["eval_steps"])
