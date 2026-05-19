@@ -122,9 +122,16 @@ def main() -> int:
     logger.info(f"Pool size: {n_total}")
 
     # ---- Sample ρ for each B.
-    rng = np.random.default_rng(0)
+    # IMPORTANT (fixed 2026-05-19): reset rng per B so different B-values draw
+    # batches from comparable random subsets of the dataset (population mean
+    # of <∇L_subset, z> should match across B, only variance differs).
+    # Earlier version shared one rng across the B-loop and produced apparent
+    # mean shifts across panels due to sequential rng-state advancing through
+    # different parts of the dataset; that was a sampling artifact, not a
+    # property of MeZO. See paper §6.4 caveat.
     samples: dict[int, list[float]] = {}
     for B in args.batch_sizes:
+        rng = np.random.default_rng(0)  # Same rng-state for every B.
         rhos: list[float] = []
         logger.info(f"Sampling B={B}: {args.n_samples} batches × bs={B}...")
         for k in range(args.n_samples):
