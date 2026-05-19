@@ -45,9 +45,11 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from dmezo.data.hellaswag import build_hellaswag_loader, evaluate_hellaswag_accuracy  # noqa: E402
+from dmezo.data.mathlogicqa import build_mathlogicqa_loader  # noqa: E402
 from dmezo.data.superglue import (  # noqa: E402
     build_partitioned_loaders,
     causal_lm_loss,
+    evaluate_classification_accuracy,
 )
 from dmezo.federated.client import ClientState  # noqa: E402
 from dmezo.federated.simulator import SimulatorConfig, run_simulation  # noqa: E402
@@ -63,6 +65,10 @@ logger = logging.getLogger("dmezo.validate_fed_multiseed")
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser()
     p.add_argument("--model", type=str, default="Qwen/Qwen3-4B")
+    p.add_argument("--task", type=str, default="hellaswag",
+                   choices=["hellaswag", "mathlogicqa"],
+                   help="hellaswag (default): English commonsense; "
+                        "mathlogicqa: Russian symbolic logic (MERA)")
     p.add_argument("--seeds", type=int, nargs="+", default=[42, 43, 44])
     p.add_argument("--variants", type=str, nargs="+", default=["vanilla", "dmezo_n"],
                    choices=["vanilla", "dmezo_n"])
@@ -118,17 +124,26 @@ def _run_one_cell(*, args, variant: str, seed: int, dtype):
         models.append(m)
         tokenizer = tok
 
-    # Data: IID partitioned train + eval pool of 500 HellaSwag validation examples.
+    # Data: IID partitioned train + eval pool. Task-specific eval loader builder.
     client_loaders = build_partitioned_loaders(
-        task="hellaswag", tokenizer=tokenizer, n_clients=args.n_clients,
+        task=args.task, tokenizer=tokenizer, n_clients=args.n_clients,
         partition_mode="iid", batch_size=args.batch_size, max_length=args.max_length,
         num_examples=args.num_train_examples, shuffle=True, seed=seed,
     )
-    eval_loader = build_hellaswag_loader(
-        tokenizer, split="validation", batch_size=args.batch_size,
-        max_length=args.max_length, shuffle=False,
-        num_examples=args.num_eval_examples, seed=0,
-    )
+    if args.task == "hellaswag":
+        eval_loader = build_hellaswag_loader(
+            tokenizer, split="validation", batch_size=args.batch_size,
+            max_length=args.max_length, shuffle=False,
+            num_examples=args.num_eval_examples, seed=0,
+        )
+    elif args.task == "mathlogicqa":
+        eval_loader = build_mathlogicqa_loader(
+            tokenizer, split="validation", batch_size=args.batch_size,
+            max_length=args.max_length, shuffle=False,
+            num_examples=args.num_eval_examples, seed=0,
+        )
+    else:
+        raise ValueError(f"Unknown task {args.task!r}")
 
     # MeZO config (shared across clients).
     rho_clip = args.rho_clip if (variant == "dmezo_n" and args.rho_clip > 0) else None
@@ -155,15 +170,17 @@ def _run_one_cell(*, args, variant: str, seed: int, dtype):
     # Eval at t=0.
     eval_steps = [0]
     eval_losses = [_eval_loss(clients[0].model, eval_loader, max_batches=args.eval_batches)]
-    eval_accs = [evaluate_hellaswag_accuracy(clients[0].model, eval_loader,
-                                              max_batches=args.eval_batches)]
+    eval_accs = [evaluate_classification_accuracy(clients[0].model, eval_loader,
+                                                       task=args.task,
+                                                       max_batches=args.eval_batches)]
     logger.info(f"  init: eval_loss={eval_losses[0]:.4f}  acc={eval_accs[0]:.4f}")
 
     t0 = time.time()
 
     def eval_fn(model, rnd):
         ev = _eval_loss(model, eval_loader, max_batches=args.eval_batches)
-        acc = evaluate_hellaswag_accuracy(model, eval_loader, max_batches=args.eval_batches)
+        acc = evaluate_classification_accuracy(model, eval_loader, task=args.task,
+                                                max_batches=args.eval_batches)
         return {"loss": ev, "acc": acc}
 
     def round_logger(round_log):
@@ -225,8 +242,8 @@ def main() -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     fig_dir.mkdir(parents=True, exist_ok=True)
     model_short = args.model.replace("/", "_").replace(".", "p")
-    json_path = out_dir / f"validate_multiseed_fed_{model_short}_hellaswag.json"
-    fig_path = fig_dir / f"fig19b_multiseed_federated_{model_short}.png"
+    json_path = out_dir / f"validate_multiseed_fed_{model_short}_{args.task}.json"
+    fig_path = fig_dir / f"fig19b_multiseed_federated_{model_short}_{args.task}.png"
 
     dtype = getattr(torch, args.dtype)
 
@@ -257,7 +274,7 @@ def main() -> int:
     ci_lo, ci_hi = _bootstrap_ci([p["delta_acc"] for p in paired])
 
     out = {
-        "model": args.model, "task": "hellaswag", "dtype": args.dtype,
+        "model": args.model, "task": args.task, "dtype": args.dtype,
         "n_clients": args.n_clients, "consensus": "weight_avg", "topology": "complete",
         "partition": "iid", "num_rounds": args.num_rounds, "lr": args.lr, "eps": args.eps,
         "seeds": args.seeds, "variants": args.variants,
@@ -310,10 +327,10 @@ def main() -> int:
         for i, ac in enumerate(acc_curves):
             ax_acc.plot(all_steps, ac, color=col, linewidth=0.7, alpha=0.5,
                         linestyle=seed_styles[i % 3])
-    ax_loss.set_xlabel("MeZO round"); ax_loss.set_ylabel("HellaSwag eval loss")
+    ax_loss.set_xlabel("MeZO round"); ax_loss.set_ylabel(f"{args.task} eval loss")
     ax_loss.set_title("(a) Loss trajectories (mean ± 1 std)")
     ax_loss.legend(loc="upper right", fontsize=9)
-    ax_acc.set_xlabel("MeZO round"); ax_acc.set_ylabel("HellaSwag 4-way accuracy")
+    ax_acc.set_xlabel("MeZO round"); ax_acc.set_ylabel(f"{args.task} 4-way accuracy")
     ax_acc.set_title("(b) Accuracy trajectories")
     ax_acc.legend(loc="lower right", fontsize=9)
     if paired:
@@ -325,8 +342,9 @@ def main() -> int:
         ax_acc.text(0.02, 0.98, annotation, transform=ax_acc.transAxes, fontsize=9,
                     va="top", family="monospace",
                     bbox=dict(boxstyle="round,pad=0.4", facecolor="white", alpha=0.9))
+    task_label = {"hellaswag": "HellaSwag", "mathlogicqa": "MathLogicQA (RU)"}[args.task]
     fig.suptitle(
-        f"§5.5 federated multi-seed validation: D-MeZO-N rescue on {args.model} / HellaSwag\n"
+        f"Federated multi-seed validation: D-MeZO-N on {args.model} / {task_label}\n"
         f"({len(args.seeds)} seeds × {args.num_rounds} rounds, n={args.n_clients} clients complete IID, "
         f"lr={args.lr}, ε={args.eps}, eval {args.num_eval_examples}-example pool)",
         fontsize=11, y=0.995,
@@ -338,7 +356,7 @@ def main() -> int:
 
     # ---- Summary.
     logger.info("=" * 88)
-    logger.info(f"Federated multi-seed validation §5.5: D-MeZO-N rescue on {args.model}")
+    logger.info(f"Federated multi-seed validation: D-MeZO-N on {args.model} / {args.task}")
     logger.info(f"{'seed':<6}{'L_van':>9}{'L_d':>9}{'acc_van':>10}{'acc_d':>9}{'Δ_acc':>10}")
     for p in paired:
         logger.info(
