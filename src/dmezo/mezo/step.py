@@ -209,6 +209,101 @@ def mezo_step(
     return seed, projected_grad, loss_plus
 
 
+def mezo_step_richardson(
+    model: nn.Module,
+    inputs: dict,
+    loss_fn: Callable[[nn.Module, torch.Tensor], torch.Tensor],
+    config: MeZOConfig,
+    *,
+    rng: np.random.Generator | None = None,
+) -> tuple[int, float, float]:
+    """Richardson-extrapolation 4-point central-difference variant of MeZO.
+
+    Standard 2-point central diff has bias O(eps^2) coming from the third
+    Taylor term ``eps^2 * z^T grad^3 L * zz / 6``. Section 6.7 shows this
+    bias is the dominant failure mode for large-eps schedules in fp16 — it
+    pushes the gradient direction off-axis and stochastic averaging cannot
+    rescue it.
+
+    Richardson combines two central-diff probes at eps and 2*eps:
+
+        rho_R = (4 * rho(eps) - rho(2*eps)) / 3
+              = (8 (L+ - L-) - (L++ - L--)) / (12 * eps)
+
+    where ``L+- := L(theta +- eps z)`` and ``L++--  := L(theta +- 2 eps z)``.
+    Same ``z`` is used at both scales (regenerated from one ``seed``), so
+    the third-order term cancels exactly to leading order. Residual bias is
+    O(eps^4) and variance contribution from the wider 2eps probe is bounded.
+
+    Cost: 4 forward passes per step (vs 2 for ``mezo_step``). For an equal
+    compute budget Richardson takes half the steps; the trade-off is worth
+    it when bias dominates variance, which the autotuner sweep (§6.7) and
+    the ε(t) ablation (§6.7 follow-up) suggest is the case in fp16.
+
+    Args:
+        model: HF model (or any nn.Module). Must have parameters with
+            ``requires_grad`` set.
+        inputs: Input batch (dict of tensors) passed to ``loss_fn``.
+        loss_fn: ``(model, inputs) -> scalar loss``.
+        config: MeZO hyperparameters. Uses ``config.eps`` (the small probe);
+            the large probe uses ``2 * config.eps`` implicitly.
+        rng: Optional numpy Generator for the per-step seed.
+
+    Returns:
+        ``(seed, projected_grad_R, loss_plus_at_eps)``. ``mezo_update`` (or
+        ``nesterov_step``) consumes ``(seed, projected_grad_R)`` unchanged
+        — the direction ``z`` is regenerated from the same seed, only the
+        scalar magnitude changes.
+
+    Note:
+        For ``mezo_update`` correctness the same ``z`` regenerated from
+        ``seed`` MUST match the ``z`` used here. Both call sites use
+        ``torch.manual_seed(seed)`` before sampling, which is deterministic.
+    """
+    if config.rho_clip is not None and config.rho_clip <= 0:
+        raise ValueError(
+            f"rho_clip must be positive or None; got {config.rho_clip}. "
+            "Use None to disable clipping."
+        )
+    if rng is None:
+        seed = int(np.random.randint(0, 2**31 - 1))
+    else:
+        seed = int(rng.integers(0, 2**31 - 1))
+
+    named = _collect_optim_params(model)
+    eps = config.eps
+
+    # Inner probe at +/- eps.
+    # +eps z
+    perturb_parameters(named, seed=seed, scaling_factor=+1.0, eps=eps)
+    loss_plus = _forward_loss(model, inputs, loss_fn)
+    # -2eps z (net theta - eps z)
+    perturb_parameters(named, seed=seed, scaling_factor=-2.0, eps=eps)
+    loss_minus = _forward_loss(model, inputs, loss_fn)
+    # +eps z (restore to theta)
+    perturb_parameters(named, seed=seed, scaling_factor=+1.0, eps=eps)
+
+    # Outer probe at +/- 2 eps. We re-use ``eps`` as the base step and
+    # multiply by 2 in scaling_factor — keeps the SAME z, just doubles the
+    # magnitude. This is the key requirement for Richardson extrapolation.
+    # +2eps z
+    perturb_parameters(named, seed=seed, scaling_factor=+2.0, eps=eps)
+    loss_plus_plus = _forward_loss(model, inputs, loss_fn)
+    # -4eps z (net theta - 2 eps z)
+    perturb_parameters(named, seed=seed, scaling_factor=-4.0, eps=eps)
+    loss_minus_minus = _forward_loss(model, inputs, loss_fn)
+    # +2eps z (restore to theta)
+    perturb_parameters(named, seed=seed, scaling_factor=+2.0, eps=eps)
+
+    rho_inner = (loss_plus - loss_minus) / (2.0 * eps)
+    rho_outer = (loss_plus_plus - loss_minus_minus) / (4.0 * eps)
+    projected_grad_R = (4.0 * rho_inner - rho_outer) / 3.0
+
+    if config.rho_clip is not None:
+        projected_grad_R = max(-config.rho_clip, min(config.rho_clip, projected_grad_R))
+    return seed, projected_grad_R, loss_plus
+
+
 def mezo_update(
     model: nn.Module,
     seed: int,
