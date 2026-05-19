@@ -162,13 +162,26 @@ def main() -> int:
     logger.info(f"Baseline L₀ = {L0:.6f}")
 
     # ---- Probe each ε candidate with fresh z per probe.
+    # Divergence handling: a probe is INVALID if L_plus or L_minus is NaN/inf
+    # (catastrophic perturbation knocks logits out of representable fp16 range).
+    # An ε candidate is marked "diverged" if any probe is invalid, since even
+    # a single NaN means we are past the safe-perturbation cliff and any
+    # statistics from this candidate are unreliable / misleading.
     raw_data: dict[str, dict] = {}
     for eps in args.eps_candidates:
         rhos: list[float] = []
         bias_proxies: list[float] = []
+        diverged = False
         for probe in range(args.n_probes):
             z_seed = int(rng.integers(0, 2**31 - 1))
             L_plus, L_minus, _ = _probe_eps(model, named, batch, eps=eps, z_seed=z_seed)
+            if not (np.isfinite(L_plus) and np.isfinite(L_minus)):
+                diverged = True
+                # Still collect the remaining probes so users can inspect the JSON,
+                # but mark the ε as diverged so it is excluded from j_score.
+                rhos.append(float("nan"))
+                bias_proxies.append(float("nan"))
+                continue
             rho = (L_plus - L_minus) / (2.0 * eps)
             # 2nd-order Taylor proxy: (L+ + L- - 2 L0) / ε² ≈ z^T H z (sign-invariant)
             taylor_2 = (L_plus + L_minus - 2.0 * L0) / (eps**2)
@@ -180,35 +193,60 @@ def main() -> int:
             "eps": float(eps),
             "rhos": rhos_arr.tolist(),
             "bias_proxies": bias_arr.tolist(),
-            "rho_mean": float(rhos_arr.mean()),
-            "rho_std": float(rhos_arr.std()),
-            "bias_mean": float(bias_arr.mean()),
-            "bias_std": float(bias_arr.std()),
+            "rho_mean": float(np.nanmean(rhos_arr)) if not diverged else float("nan"),
+            "rho_std": float(np.nanstd(rhos_arr)) if not diverged else float("nan"),
+            "bias_mean": float(np.nanmean(bias_arr)) if not diverged else float("nan"),
+            "bias_std": float(np.nanstd(bias_arr)) if not diverged else float("nan"),
+            "diverged": bool(diverged),
         }
-        logger.info(
-            f"ε={eps:.2e}: ρ mean={rhos_arr.mean():+.3f} std={rhos_arr.std():.3f}  "
-            f"bias-proxy mean={bias_arr.mean():+.3f} std={bias_arr.std():.3f}"
-        )
+        if diverged:
+            logger.warning(
+                f"eps={eps:.2e}: DIVERGED (forward returned NaN/inf for at least one probe) — "
+                "excluded from j_score selection"
+            )
+        else:
+            logger.info(
+                f"eps={eps:.2e}: rho mean={rhos_arr.mean():+.3f} std={rhos_arr.std():.3f}  "
+                f"bias-proxy mean={bias_arr.mean():+.3f} std={bias_arr.std():.3f}"
+            )
 
-    # ---- Compute trade-off score per ε.
-    # bias_proxy is z^T H z — should be eps-INDEPENDENT in linear regime;
-    # deviation = Taylor-nonlinearity. Use abs(mean) as bias proxy strength.
+    # ---- Compute trade-off score per ε (diverged candidates excluded).
     score_table = {}
     for k, v in raw_data.items():
+        if v["diverged"]:
+            score_table[k] = {
+                "eps": v["eps"],
+                "bias": float("nan"),
+                "var": float("nan"),
+                "diverged": True,
+            }
+            continue
         bias_strength = abs(v["bias_mean"])  # |E[z^T H z]| (Taylor-2 magnitude)
         var = v["rho_std"] ** 2
-        # Normalise both terms to [0, 1] so the trade-off is comparable.
-        score_table[k] = {"eps": v["eps"], "bias": bias_strength, "var": var}
+        score_table[k] = {"eps": v["eps"], "bias": bias_strength, "var": var, "diverged": False}
 
+    eps_vals = np.array([s["eps"] for s in score_table.values()])
     biases = np.array([s["bias"] for s in score_table.values()])
     vars_ = np.array([s["var"] for s in score_table.values()])
-    eps_vals = np.array([s["eps"] for s in score_table.values()])
-    # Min-max normalize so neither dimension dominates by raw scale.
-    def _norm(x):
-        rng = x.max() - x.min()
-        return (x - x.min()) / (rng + 1e-12)
-    j_score = _norm(biases) + _norm(vars_)
-    eps_star_idx = int(np.argmin(j_score))
+    valid_mask = np.array([not s["diverged"] for s in score_table.values()])
+    if not valid_mask.any():
+        raise RuntimeError(
+            "All ε candidates diverged. Reduce the upper range of --eps-candidates."
+        )
+
+    # Min-max normalize over VALID candidates only so neither dimension dominates.
+    def _norm_valid(x: np.ndarray, mask: np.ndarray) -> np.ndarray:
+        out = np.full_like(x, np.nan, dtype=np.float64)
+        if mask.any():
+            lo = float(x[mask].min())
+            hi = float(x[mask].max())
+            rng = hi - lo
+            out[mask] = (x[mask] - lo) / (rng + 1e-12)
+        return out
+
+    j_score = _norm_valid(biases, valid_mask) + _norm_valid(vars_, valid_mask)
+    # nanargmin: ignores NaN entries (diverged candidates).
+    eps_star_idx = int(np.nanargmin(j_score))
     eps_star = float(eps_vals[eps_star_idx])
 
     # ---- Save raw + scores.
