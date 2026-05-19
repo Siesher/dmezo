@@ -310,6 +310,31 @@ Princeton MeZO использует $\varepsilon = 10^{-3}$ как default. Ги
 
 ![Рисунок 14. Cross-arch ε(t) schedule ablation. Слева: Qwen3-0.6B (full-attention). Справа: Qwen3.5-0.8B (hybrid linear-attention). Пять schedule: const-10⁻³ (синий), decay 10⁻³→10⁻⁴ (зелёный), decay 10⁻²→10⁻³ (оранжевый), decay 3·10⁻²→10⁻³ (красный), grow 10⁻³→10⁻² (фиолетовый). На обеих архитектурах все warmup-style и grow schedules заметно проигрывают const ε=10⁻³ из-за невозвратной biased descent в первые 20–30 шагов. Классический Spall-decay 10⁻³→10⁻⁴ — единственная схема, способная превзойти const, и только на hybrid (+4.2pp). Practical recipe: стартовать в Princeton ε=10⁻³; decay только вниз.](figures/fig14_eps_schedule_cross_arch.png){width=16cm}
 
+## 6.8 Joint lr × ε × variant sweep на reasoning task: vanilla побеждает D-MeZO-N
+
+Логичный финальный тест: переносится ли §6.7 ε-finding и §5.5 D-MeZO-N rescue эффект на **paper-canonical** комбинацию (Qwen3.5-4B-Base hybrid + HellaSwag reasoning) при **joint sweep по lr И ε(t)**? Развёртываем 4×3×2 = 24-cell grid на Colab Blackwell: $\eta \in \{10^{-7}, 3 \cdot 10^{-7}, 10^{-6}, 3 \cdot 10^{-6}\}$ × schedule $\in$ {const $10^{-3}$, decay $10^{-3} \to 10^{-4}$, warmup $10^{-2} \to 10^{-3}$} × variant $\in$ {vanilla, D-MeZO-N} с фиксированным D-MeZO-N рецептом ($C=50$, $\beta_0=0.9 \to \beta_T=0$). 500 шагов на cell, eval каждые 50 шагов на 100-example HellaSwag validation. Total compute ≈ 3 часа на Blackwell (~85 min × 2 variants).
+
+Результат (Figure 18) **противоречит** наивному ожиданию из §5.5 что "D-MeZO-N rescues where vanilla diverges":
+
+| $\eta$ | schedule | vanilla $\Delta$L% | D-MeZO-N $\Delta$L% | vanilla acc / D-MeZO-N acc |
+|---|---|---|---|---|
+| $10^{-7}$ | const $10^{-3}$ | −1.0% | −0.7% | 0.71 / 0.71 |
+| $3 \cdot 10^{-7}$ | const $10^{-3}$ | −0.7% | **+0.3%** ⭐ | 0.69 / 0.69 |
+| $10^{-6}$ | const $10^{-3}$ | **+1.0%** ⭐ | −4.5% | 0.67 / 0.63 |
+| $10^{-6}$ | decay $10^{-3} \to 10^{-4}$ | −0.9% | −7.9% | 0.66 / 0.62 |
+| $3 \cdot 10^{-6}$ | const $10^{-3}$ | −3.9% | **−497.1%** ❌ | 0.64 / 0.20 |
+| $3 \cdot 10^{-6}$ | decay $10^{-3} \to 10^{-4}$ | −68.8% | **−631.2%** ❌ | 0.40 / 0.28 |
+
+(полный grid в Figure 18; все warmup-style cells систематически проигрывают const на обоих variants)
+
+**Ключевые наблюдения**: (i) **vanilla с $\eta=10^{-6}$ + const $\varepsilon=10^{-3}$ — единственный winner** (drop +1.0%); (ii) **D-MeZO-N safe-window уже vanilla** — оптимум на $\eta=3 \cdot 10^{-7}$ с marginal +0.3%, а уже при $\eta=10^{-6}$ D-MeZO-N **уступает** vanilla на 5.5 pp; (iii) при $\eta=3 \cdot 10^{-6}$ D-MeZO-N **катастрофически** деградирует (L=12.5–15.3 vs vanilla 3.5–5.2, acc падает до random-chance 0.20–0.28) — ρ-clip C=50 binding **на каждом шаге** с начала, но Nesterov-momentum продолжает накапливать noise-direction. Контраст с §5.5 (где D-MeZO-N rescued на Qwen3-4B/HellaSwag через +3.75 pp acc) объясняется горизонтом и масштабом: текущий sweep — 500 шагов на Qwen3.5 hybrid linear-attn архитектуре, а §5.5 — 1000+ rounds на Qwen3-4B standard transformer. β-decay требует достаточно длинного horizon, чтобы момент успел "разрядиться" до асимптотической SGD-фазы; на 500 шагах horizon $T$ слишком короткий относительно $T_{\text{decay}}$, и большая часть траектории проводится в high-β регионе.
+
+**Также подтверждается §6.7 third time independent**: warmup-style $\varepsilon(t)$ schedule проигрывает const на **обоих** variants и **всех** четырёх $\eta$ — теперь и на reasoning task + 4B масштабе (drop в диапазоне −4.5% до −147% для vanilla, −5.4% до −372% для D-MeZO-N).
+
+**Practical recipe для fp16 MeZO на reasoning + 4B**: **vanilla MeZO, $\eta=10^{-6}$, const $\varepsilon=10^{-3}$**, 500+ шагов. D-MeZO-N следует применять только когда (a) задача демонстрирует vanilla divergence, и (b) horizon достаточен для $\beta$-decay (≥1000 шагов). Этот negative result усиливает контрибуцию C4 (Theorem 3 corollary): D-MeZO-N — **специализированный** rescue mechanism для noisy regimes, не universal improvement.
+
+![Рисунок 18. Joint lr × ε × variant sweep на Qwen3.5-4B-Base / HellaSwag (Colab Blackwell, 500 шагов на cell, 100-example eval). Верхний ряд — vanilla MeZO, нижний — D-MeZO-N (C=50, β=0.9→0). Колонки — η ∈ {10⁻⁷, 3·10⁻⁷, 10⁻⁶, 3·10⁻⁶}. Каждый panel — три ε(t) schedule (const синий, decay-below зелёный, warmup красный). Vanilla с η=10⁻⁶ + const ε=10⁻³ — единственный winner (drop +1.0%). D-MeZO-N safe-window уже: оптимум на η=3·10⁻⁷, при η=10⁻⁶ уже проигрывает vanilla на 5.5pp. При η=3·10⁻⁶ D-MeZO-N катастрофически расходится (треугольники-маркеры показывают где траектория выходит за пределы y-axis; L_final=12.5–15.3 vs vanilla 3.5–5.2). Warmup-style ε(t) систематически проигрывает const на всех 8 ячейках (4 lr × 2 variants).](figures/fig18_joint_sweep_colab.png){width=16cm}
+
 # 7. Ограничения и future work
 
 **Эмпирические ограничения.** (а) Multi-seed при $n=2$ только на Day 5 SST-2 grid; HellaSwag (§5.5) и MathLogicQA (§5.6) на одном seed-е — multi-seed расширение прямолинейно, но ограничено бюджетом. (б) Scale-up за пределы 4-клиентского / 4B-параметрового режима — реальные FL-деплои имеют 100+ клиентов и 8B+ модели; на этом масштабе мы не тестировали. (в) Генеративные задачи (SAMSum, GSM8K) не исследованы — §5.5/§5.6 покрывают multi-choice reasoning, не free-form generation. (г) Нет head-to-head сравнения с FedKSeed / Ferret / FedZeN — эти интеграции — нетривиальная работа по коду и были вне scope.
