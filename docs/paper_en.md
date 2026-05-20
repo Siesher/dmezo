@@ -327,6 +327,13 @@ This is the first concrete improvement to the D-MeZO-N recipe since the original
 - Tested only on local Qwen3.5-0.8B (much smaller than paper-scale Qwen3.5-4B). The benefit may differ at scale.
 - D-MeZO-N v2 **must** also be tested on **rescue regime** (HellaSwag §5.5) to confirm it doesn't break the rescue ability, since unclipped momentum could re-introduce divergence on tasks where vanilla diverges.
 
+**Scale-up validation (pending Colab runs).** Two follow-up experiments are prepared as Colab notebook sections to verify the combo finding holds at paper scale:
+
+- **§22 (Qwen3.5-4B-Base / MathLogicQA / 3 seeds × 1000 rounds, ~11 h on A100).** Direct paper-scale replication. If combo at 4B still matches vanilla and beats v1 with CI excluding zero, **D-MeZO-N v2 becomes the recommended default**. Configuration in `notebooks/bootstrap_colab.ipynb` section 22 (calls `scripts/local_test_improvements.py --model Qwen/Qwen3.5-4B-Base`).
+- **§23 (Qwen3-4B / HellaSwag / 3 seeds × 1000 rounds, ~4.5 h on A100).** Rescue regime stress test. Risk: B1 adaptive-clip relaxes the over-tight $C=50$ to ${\sim}400$, which may re-introduce divergence on tasks where vanilla diverges. B5 drift-reset is designed to catch this, but the safety margin at large $|\hat\rho|$ peaks (HellaSwag observed +159 in §5.5) is empirically untested. Three possible outcomes: combo rescues better than v1; combo matches v1 (current claim); combo diverges (needs $\alpha < 1.0$ or a min-clip floor).
+
+Results from these runs will replace this paragraph and update the **D-MeZO-N v2** verdict accordingly.
+
 **Batch-size variance scaling (empirical: 1/√B does NOT hold).** Standard CLT predicts that the per-step ρ-estimator variance shrinks as $1/B$ with mini-batch size, i.e. std $\propto 1/\sqrt{B}$. We tested this on Qwen3-0.6B / SST-2 with $z$ fixed across 100 random batches per $B \in \{1, 2, 4, 8, 16, 32\}$ (Figure 8). The observed std plateaus at $B \geq 8$ with ratio (observed / CLT-expected) growing from $1.55\times$ (B=2) to $3.43\times$ (B=32). This implies the dominant noise source in MeZO is **not** data sampling — it is the choice of direction $z$ itself (and, secondarily, low-precision arithmetic in the loss difference $L_+ - L_-$). Consequently, increasing batch size beyond ~8 gives no benefit, but $K$-direction averaging across fresh $z_k$ DOES reduce variance (verified by `tests/test_md_mezo.py::TestKDirectionVarianceReduction`). This justifies our small-batch (B=4-8) recipe and motivates multi-direction extensions over larger batches.
 
 ![Figure 8. Empirical distribution of the MeZO projected-gradient estimator $\hat\rho$ for fixed perturbation direction $z$ across mini-batch sizes $B \in \{1,2,4,8,16,32\}$. Setup: Qwen3-0.6B fp16 / SST-2 / ε=10⁻³ / 100 random batches per B. The CLT prediction std $\propto 1/\sqrt{B}$ is NOT observed: std plateaus at B≥8 (ratio observed/expected grows from 1.55× at B=2 to 3.43× at B=32). The dominant variance source is the choice of $z$, not data sampling — motivating multi-direction (vary $z$) over batch-scaling for variance reduction in MeZO.](figures/fig8_batch_variance.png){width=16cm}
@@ -334,6 +341,77 @@ This is the first concrete improvement to the D-MeZO-N recipe since the original
 **Reviewer response: multi-direction SPSA (MD-D-MeZO-N).** An external reviewer suggested replacing $\rho$-clipping with $K$-direction SPSA averaging (variance reduction at the source rather than the symptom) and using true look-ahead Nesterov to achieve the optimal $O(1/T^2)$ rate. We tested this empirically on the worst Day 5 cell (ring + Dir(0.5) Qwen3.5-4B-Base, otherwise identical to R1d) with $K=3$. Results: final eval loss **0.1828 (K=3) vs. 0.1291 (K=1 R1d)** — **+41.6% worse on loss** — but final accuracy **0.9688 vs. 0.9563** — **+1.25pp better on acc**. K-direction averaging acts as a generalization regularizer rather than a pure speedup. The "optimal $O(1/T^2)$ Nesterov rate" claim is falsified by this result; theoretically it is also incorrect for stochastic NAG with $\sigma > 0$ (Bottou-Curtis-Nocedal 2018, Theorem 5.1). $\rho$-clipping and multi-direction are **complementary**, not alternatives: an ideal practitioner would use both (clip per-direction $C \cdot \sqrt{K}$). Computational cost: $2K$ forward passes per local step (vs. 2 baseline); 1.84× wall-clock for $K=3$ due to consensus overhead amortization.
 
 **Choice of constant learning rate.** Classical SPSA literature (Spall 1992, §3.2) prescribes a harmonic decay schedule $\eta_t = a / (t + A)^{\alpha}$ with $\alpha \approx 0.602$ to guarantee convergence to the true optimum $\theta^*$. We follow Princeton MeZO (Malladi 2023) and use a **constant** $\eta$, which under Theorem 3 yields convergence only to a noise neighborhood of radius $O(G^2/\mu)$, not to $\theta^*$. For LLM fine-tuning this is acceptable — we want a "good-enough" parameter setting, not exact convergence — and a constant $\eta$ yields faster initial descent ($O(1/T)$) than harmonic decay ($O(1/T^{0.602})$). A schedule sweep over {constant, harmonic, cosine} is straightforward to add as a future ablation; the codebase exposes `MeZOConfig.lr_schedule` for this.
+
+## 6.7 Privacy-preserving D-MeZO-N (DP-MeZO σ-sweep)
+
+We extend D-MeZO-N v1 with Gaussian noise on the clipped projected gradient, transforming each MeZO step into one application of the **Gaussian mechanism** (Dwork-Roth 2014). The clip threshold $C$ naturally serves as the L2 sensitivity bound, so adding $\xi_t \sim \mathcal{N}(0, \sigma^2)$ to $\tilde\rho_t = \mathrm{clip}(\hat\rho_t, \pm C)$ gives $(\varepsilon_1, \delta)$-DP per round with $\varepsilon_1 = C \sqrt{2 \ln(1.25/\delta)} / \sigma$.
+
+**Theoretical analysis** is in `docs/theory_rigorous.md` §6.5 (Theorem 4). Key result:
+
+$$\mathbb{E}[V_T] \le (1 - \tfrac{3\eta\mu}{2})^T V_0 + \frac{2(C^2 + \sigma^2) d \ell}{3\mu}$$
+
+where the $\sigma^2 \cdot d$ term reflects an important theoretical fact: **DP-noise breaks the Malladi $r(H)$-substitution trick** because $\xi z$ is isotropic in parameter space (no alignment with $\nabla L$), so the noise contribution scales with **full** $d$ rather than $r(H) \ll d$. The theoretical crossover where DP-noise dominates ZO-noise is $\sigma_{\text{crossover}} \sim C\sqrt{r(H)/d}$ which is very small (≈ 0.02 for our setup); but empirically the floor bound is loose at $T = 200$ rounds.
+
+### 6.7.1 σ-sweep setup
+
+**Experimental setup (matches `docs/dp_sigma_sweep_plan.md`):**
+- Model: Qwen/Qwen3.5-0.8B (hybrid linear-attn; smaller model for faster sweep — σ-sensitivity should be approximately model-size-invariant for the per-round bound)
+- Task: MathLogicQA (4-way Russian symbolic logic)
+- Federation: 4 clients, IID, complete topology, weight_avg consensus
+- 2 seeds × 200 rounds × 8 variants (6 σ values + vanilla + dmezo_n no-DP baseline) = 16 cells
+
+**Privacy budget table (C = 50, δ = 10⁻³):**
+
+| σ | ε per round | Privacy class | Predicted utility |
+|---|---|---|---|
+| 0.5 | 378 | No privacy (reference) | ≈ no-DP D-MeZO-N |
+| 2.0 | 94 | Trivial | ≈ no-DP D-MeZO-N |
+| 5.0 | 38 | Trivial | Slight degradation |
+| 10.0 | 19 | Weak | Moderate degradation |
+| **19.0** | **10** | **Medium ★ paper threshold** | **Key data point** |
+| 50.0 | 4 | Medium-strong | Significant degradation expected |
+
+### 6.7.2 Empirical results (Colab Blackwell, ~2 h wall-clock)
+
+| Variant | σ | ε per round | Final loss (mean ± std) | Final acc | Wall clock |
+|---|---|---|---|---|---|
+| Vanilla D-MeZO | — | ∞ (no DP) | **TBD** | TBD | — |
+| D-MeZO-N v1 (no DP) | — | ∞ (no DP) | **TBD** | TBD | — |
+| + DP, σ=0.5 | 0.5 | 378 | TBD | TBD | — |
+| + DP, σ=2.0 | 2.0 | 94 | TBD | TBD | — |
+| + DP, σ=5.0 | 5.0 | 38 | TBD | TBD | — |
+| + DP, σ=10.0 | 10.0 | 19 | TBD | TBD | — |
+| + DP, σ=19.0 | 19.0 | **10** ★ | **TBD** | **TBD** | — |
+| + DP, σ=50.0 | 50.0 | 4 | TBD | TBD | — |
+
+![Figure 23. DP-MeZO privacy/utility frontier on Qwen3.5-0.8B / MathLogicQA / 200 rounds / 4 clients IID / 2 seeds. (a) Final eval loss as a function of privacy budget ε (log scale, stronger privacy to the right). Dashed lines show no-DP baselines (vanilla and D-MeZO-N v1). (b) Final accuracy. Error bars are ±1 std across seeds. The ε=10 threshold is the "publishable privacy" boundary.](figures/fig_sweep_dp_sigma_frontier_Qwen_Qwen3p5-0p8B_mathlogicqa.png){width=16cm}
+
+### 6.7.3 Pre-registered narratives (to be selected based on results)
+
+Three honest outcome interpretations:
+
+**(A) Strong outcome — DP works at ε=10 (paper-changing):**
+
+> "At $\sigma = 19$ ($\varepsilon = 10$, medium privacy), DP-MeZO-N achieves final loss within X% of the no-DP baseline. This establishes the **first decentralized federated zeroth-order optimizer with formal (ε, δ)-DP guarantee at $\varepsilon \le 10$** on LLM fine-tuning. The cost of privacy at this level is modest because ρ-clipping already provides the natural sensitivity bound for the Gaussian mechanism — no additional mechanism is required."
+
+**(B) Smooth degradation — frontier mapped (good result):**
+
+> "DP-MeZO-N's utility degrades monotonically with privacy strength, consistent with Theorem 4. The privacy/utility frontier is well-defined: for ε ≥ 38 (σ ≤ 5), DP cost is essentially free; for ε ≤ 10 (σ ≥ 19), utility loss is substantial. Practitioners can choose ε based on application requirements. Per-round ε is the relevant claim for one-shot federated fine-tuning; T-round composition (e.g., RDP, moments accountant) is left as future work."
+
+**(C) Catastrophic at ε=10 — variance reduction needed (honest negative):**
+
+> "Theorem 4 predicts that $\sigma^2 \cdot d$ noise contribution dominates $C^2 \cdot r(H)$ for σ > 0.02 on LLMs (where $d \gg r(H)$). Empirically, at $\sigma = 19$, this is realized: utility collapses to near-random accuracy. We propose **multi-direction averaging (K-direction MeZO, see §6.5)** as the natural fix — averaging $K$ independent z directions reduces variance from DP noise by factor $K$, allowing larger $\sigma$ at the same utility cost. Concretely, with $K = 4$, effective $\sigma$ is halved (or $\varepsilon$ doubled) at the same utility. This is the recommended direction for future DP-MeZO-N work."
+
+### 6.7.4 Composition caveat (honest)
+
+Per-round ε reported above is for **one round** of training. **T-round composition** is fundamentally harder:
+
+- **Basic composition** (Dwork-Roth Theorem 3.16): $\varepsilon_T = T \varepsilon_1$. For $T = 200$, $\varepsilon_1 = 10$: $\varepsilon_T = 2000$ (useless).
+- **Advanced composition** (Dwork-Rothblum-Vadhan 2010): $\varepsilon_T = O(\sqrt{T \ln(1/\delta')}) \cdot \varepsilon_1 + O(T \varepsilon_1 e^{\varepsilon_1})$. The second term is catastrophic for ε₁ > 1.
+- **RDP / moments accountant** (Mironov 2017, Abadi 2016): tighter via Rényi divergence, but still $O(\sqrt{T})$ scaling for Gaussian.
+- **Subsampling amplification** (Abadi 2016): reduces per-step ε by batch fraction $q$, but our setup uses full-batch MeZO per round (no subsampling).
+
+**Paper position:** Report per-round ε (standard convention for one-shot federated fine-tuning); explicitly note T-round composition as a limitation; cite established composition tools as future work. Adding mini-batch subsampling per round is a straightforward extension that would amplify privacy.
 
 # 7. Limitations and Future Work
 
