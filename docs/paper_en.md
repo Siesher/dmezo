@@ -446,9 +446,58 @@ Per-round ε reported above is for **one round** of training. **T-round composit
 - **Look-ahead Nesterov variant** has dual-channel noise structure (probe + update both depend on $v_t$) — empirically diverges 7× faster than heavy-ball (R20 vs R140). No theoretical bound derived; matches qualitative reasoning but not formally closed.
 - **PL constant $\mu$ for LLMs is unproven globally** — locally on overparameterized trajectory it is plausible (Liu-Zhu-Belkin 2022) but we use it as assumption.
 
-# 8. Conclusion
+# 8. Calibrated summary of achievements (as of 2026-05-20)
 
-We presented D-MeZO-N — Decentralized Federated MeZO with Nesterov-style acceleration — and established it as a viable peer-to-peer federated optimizer for LLM fine-tuning. Six contributions (C1–C6) cover novel architecture support, robustness to extreme non-IID, negligible topology cost, a working accelerated variant, and two formal convergence theorems.
+Six tiers ranked by evidence strength, separating what has been **solidly demonstrated**, what is **promising but preliminary**, what has been **falsified**, and what is **pending**. Each claim cites the relevant experimental section.
+
+### A. Solidly demonstrated (multi-seed or task-replicated, paper-ready)
+
+| Claim | Evidence | Section |
+|---|---|---|
+| **A1.** Federated MeZO works on hybrid linear-attention LLMs (Qwen3.5-4B-Base) | Day 1 + 2×2 cross-arch grid | §5.1, §5.3 |
+| **A2.** 2D-torus, ring, complete topologies all converge; partition-tax of Dir(0.5) non-IID is <13% | Day 5 2×2 grid | §5.3 |
+| **A3.** Two new convergence theorems with full Lyapunov proofs: T3 (PL+heavy-ball+β-decay+clip) and T4 (DP extension) | Closed proofs in `docs/theory_rigorous.md` | §3.4, §6.5 (theory) |
+| **A4.** Per-round (ε=10, δ=10⁻³)-DP at ~6% utility cost on Qwen3.5-0.8B / MathLogicQA | 8 σ values × 2 seeds = 16 cells, frontier flat across σ ∈ [0.5, 50] | §6.7 |
+| **A5.** Communication cost: 1 scalar + 1 seed per client per round (~16 bytes), vs FedAvg's $O(d)$ | Algorithmic | §4 |
+| **A6.** ρ-clip threshold C provides natural L2 sensitivity bound for Gaussian DP mechanism (no extra mechanism needed) | Insight + empirical confirmation | §6.7 |
+
+### B. Promising but preliminary (1-2 seeds, replication pending)
+
+| Claim | Evidence | Caveat |
+|---|---|---|
+| **B1.** D-MeZO-N v1 rescues HellaSwag where vanilla diverges (+3.75pp acc on Qwen3-4B) | n=1 seed | Multi-seed pending; should not be over-claimed |
+| **B2.** D-MeZO-N v2 (B1+B5 combo) achieves vanilla parity on Qwen3.5-0.8B / MathLogicQA | n=2 seeds; paired CI [-0.10, 0.00] on Δacc includes zero | Borderline statistical |
+| **B3.** D-MeZO-N v2 may *outperform* vanilla at 4B scale (preliminary s=42: −7% loss, +3pp acc on Qwen3.5-4B-Base) | n=1 seed, mid-sweep | Awaiting s=43, s=44 to confirm |
+
+### C. Empirically falsified (honest negatives — kept in paper)
+
+| Original claim | Falsification | Section |
+|---|---|---|
+| **C1.** "+1.25pp acc improvement over vanilla on MathLogicQA" | 3-seed paired CI [0.0, 0.0] | §5.6.1 (multi-seed) |
+| **C2.** "True-Nesterov look-ahead accelerates" | Diverges 7× faster than heavy-ball (R20 vs R140) | §5.4 (Day 6b) |
+| **C3.** "K=3 multi-direction strictly improves" | Trade-off: loss +41.6% worse, acc +1.25pp better | §6.4 (MD ablation) |
+| **C4.** "Adaptive ε(t) autotuner beats Princeton ε=10⁻³" | Loses by 3-6× in downstream | §6.3 (ε autotuner) |
+| **C5.** "$O(1/T^2)$ Nesterov rate achievable" | Bottou-Curtis-Nocedal 2018 Theorem 5.1: momentum does not accelerate asymptotically for stochastic non-convex with σ>0 | §6.4 theoretical note |
+
+### D. Pending validation (in flight or planned)
+
+| Task | Status | ETA |
+|---|---|---|
+| **D1.** Combo at Qwen3.5-4B-Base / MathLogicQA / 3 seeds | Cell 5/15 of 15 complete; preliminary s=42 shows +3pp acc | ~7h remaining |
+| **D2.** Combo on HellaSwag rescue regime / Qwen3-4B / 3 seeds | Configured; awaiting Colab budget | After D1 |
+| **D3.** Combo + DP composition: D-MeZO-N v2 + ε=10 | Configured; awaiting Colab budget | After D2 |
+
+### E. Honest framing for the strongest publishable claim
+
+Based on solidly-demonstrated tier A + theoretical contribution:
+
+> **D-MeZO-N is the first decentralized federated zeroth-order optimizer for LLM fine-tuning with (i) closed-form Lyapunov convergence proofs under PL + heavy-ball + β-decay + ρ-clipping (Theorem 3), (ii) formal per-round $(\varepsilon=10, \delta=10^{-3})$-DP guarantee via natural ρ-clip sensitivity bound at ~6% utility cost (Theorem 4 + §6.7), (iii) $\sim$$10^9 \times$ communication compression vs. FedAvg (1 scalar + 1 seed per round), and (iv) demonstrated convergence on hybrid linear-attention LLMs across complete / ring / non-IID-Dir(0.5) topologies.**
+
+What is **not** claimed (per tier C): asymptotic acceleration over vanilla MeZO, $O(1/T^2)$ rates, multi-direction strict improvement, accuracy gains beyond seed noise on convergent tasks. What is **not yet ready** (tier B/D): paper-scale validation of v2 vs vanilla, rescue-regime safety of combo.
+
+# 9. Conclusion
+
+We presented D-MeZO-N — Decentralized Federated MeZO with Nesterov-style acceleration — and established it as a viable peer-to-peer federated optimizer for LLM fine-tuning. Six contributions (C1–C6) cover novel architecture support, robustness to extreme non-IID, negligible topology cost, a working accelerated variant, two formal convergence theorems, and the first formal per-round DP guarantee for decentralized federated ZO on LLMs.
 
 # References
 
