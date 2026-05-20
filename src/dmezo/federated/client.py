@@ -25,7 +25,14 @@ from dmezo.mezo.nesterov import (
     nesterov_lookahead_step,
     nesterov_step,
 )
-from dmezo.mezo.step import MeZOConfig, md_mezo_step, md_mezo_update, mezo_step, mezo_update
+from dmezo.mezo.step import (
+    AdaptiveClipState,
+    MeZOConfig,
+    md_mezo_step,
+    md_mezo_update,
+    mezo_step,
+    mezo_update,
+)
 
 
 @dataclass
@@ -41,6 +48,9 @@ class ClientState:
         nesterov_state: Optional Nesterov velocity state. If None, use plain MeZO.
         local_steps: Number of MeZO steps per federated round.
         rng: Per-client numpy Generator for seed sampling.
+        adaptive_clip_state: B1 — optional running-quantile ρ-clipper. When set,
+            its ``current_threshold()`` supersedes ``mezo_config.rho_clip`` for
+            ``mezo_step``. Default None = use fixed ``mezo_config.rho_clip``.
     """
 
     client_id: int
@@ -50,6 +60,7 @@ class ClientState:
     local_steps: int = 1
     nesterov_state: NesterovState | None = None
     rng: np.random.Generator = field(default_factory=lambda: np.random.default_rng())
+    adaptive_clip_state: AdaptiveClipState | None = None
     _data_iter: object | None = None
 
     def _next_batch(self) -> dict:
@@ -131,6 +142,8 @@ class ClientState:
                 history.append((seed_repr, rho_mean, loss_plus))
             elif apply and self.nesterov_state is not None and self.nesterov_state.look_ahead:
                 # Look-ahead Nesterov: MeZO probes at theta + beta*v, not theta.
+                # NOTE: adaptive clip + DP currently NOT wired into the look-ahead
+                # path (separate sub-step within nesterov_lookahead_step). Future work.
                 seed, rho, loss_plus = nesterov_lookahead_step(
                     self.model,
                     self.nesterov_state,
@@ -141,9 +154,25 @@ class ClientState:
                 )
                 history.append((seed, rho, loss_plus))
             else:
+                # B1: adaptive clip — compute threshold from running window
+                # BEFORE this step, so the threshold uses prior |ρ| history only
+                # (current ρ not yet in the buffer).
+                rho_clip_override = None
+                if self.adaptive_clip_state is not None:
+                    rho_clip_override = self.adaptive_clip_state.current_threshold()
+                # D2: DP noise — taken from config; override unused (use config).
                 seed, rho, loss_plus = mezo_step(
-                    self.model, batch, loss_fn, self.mezo_config, rng=self.rng
+                    self.model, batch, loss_fn, self.mezo_config,
+                    rng=self.rng,
+                    rho_clip_override=rho_clip_override,
                 )
+                # B1: append this step's |ρ| to the running window (for the
+                # NEXT step's threshold). Note: this is the POST-clip (and
+                # post-DP if enabled) ρ — that's intentional, the threshold
+                # tracks the distribution of values that actually went into
+                # the update.
+                if self.adaptive_clip_state is not None:
+                    self.adaptive_clip_state.update(abs(rho))
                 if apply:
                     if self.nesterov_state is not None:
                         nesterov_step(
@@ -154,6 +183,11 @@ class ClientState:
                             lr=self.mezo_config.lr,
                             weight_decay=self.mezo_config.weight_decay,
                         )
+                        # B5: drift detection — check AFTER applying the step,
+                        # using loss_plus as a proxy for the current trajectory
+                        # health. If drift detected, the velocity buffer is
+                        # zeroed (caller can read state.n_resets for diagnostics).
+                        self.nesterov_state.check_drift_and_reset(loss_plus)
                     else:
                         mezo_update(
                             self.model,

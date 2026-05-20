@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 import torch
@@ -80,6 +80,22 @@ class MeZOConfig:
     lr_schedule: str = "constant"
     lr_decay_a: float = 1.0
     lr_decay_alpha: float = 0.602
+    # B1: adaptive ρ-clipping (data-driven threshold from running quantile).
+    # When ``adaptive_clip_window > 0`` AND ``adaptive_clip_quantile in (0, 1)``,
+    # callers should maintain an ``AdaptiveClipState`` and use its current
+    # threshold via ``rho_clip_override`` instead of ``rho_clip`` below.
+    # The ``MeZOConfig`` fields just record the policy parameters; the running
+    # state lives in :class:`AdaptiveClipState` (declared below).
+    adaptive_clip_window: int = 0
+    adaptive_clip_quantile: float = 0.95
+    adaptive_clip_alpha: float = 1.3
+    # D2: differential-privacy Gaussian noise on the projected gradient.
+    # When ``dp_sigma > 0``, ``mezo_step`` adds N(0, σ²) noise to ρ AFTER
+    # clipping. Combined with ρ-clip ``C``, this provides Gaussian-mechanism
+    # (ε, δ)-DP with sensitivity Δ = C (since per-record contribution to the
+    # output ρ is bounded by the clip). See Dwork-Roth 2014 §3.5.3.
+    # ``None`` or 0 disables DP noise.
+    dp_sigma: float | None = None
 
 
 def effective_lr(config: MeZOConfig, round_idx: int, num_rounds: int) -> float:
@@ -157,6 +173,8 @@ def mezo_step(
     config: MeZOConfig,
     *,
     rng: np.random.Generator | None = None,
+    rho_clip_override: float | None = None,
+    dp_sigma_override: float | None = None,
 ) -> tuple[int, float, float]:
     """Run one MeZO gradient-estimation step (no parameter update yet).
 
@@ -167,22 +185,36 @@ def mezo_step(
         config: MeZO hyperparameters.
         rng: Optional numpy Generator for picking the per-step seed. If None,
             uses np.random.
+        rho_clip_override: B1 adaptive-clip — when not None, supersedes
+            ``config.rho_clip`` for this step. Used by callers maintaining an
+            :class:`AdaptiveClipState` to inject the data-driven threshold.
+            Must be positive when set.
+        dp_sigma_override: D2 differential-privacy — when not None, supersedes
+            ``config.dp_sigma``. Adds ``N(0, σ²)`` noise to ρ after clipping.
+            Set to 0 to disable for this step even if config has σ > 0.
 
     Returns:
         Tuple ``(seed, projected_grad, loss_plus)``:
             - seed: int seed used for z_t this step. PASS THIS TO ``mezo_update``.
-            - projected_grad: estimated <grad, z_t>.
+            - projected_grad: estimated <grad, z_t>, after optional clip + DP.
             - loss_plus: loss at theta + eps*z (for logging).
 
     Note:
         After this call, parameters are RESTORED to their original state.
         The caller is responsible for invoking ``mezo_update`` with the returned
         seed and projected_grad to actually move theta.
+
+        Adaptive clip ordering: clip is applied BEFORE DP noise (matches the
+        Gaussian-mechanism convention — noise is added to the clipped output).
     """
     if config.rho_clip is not None and config.rho_clip <= 0:
         raise ValueError(
             f"rho_clip must be positive or None; got {config.rho_clip}. "
             "Use None to disable clipping."
+        )
+    if rho_clip_override is not None and rho_clip_override <= 0:
+        raise ValueError(
+            f"rho_clip_override must be positive or None; got {rho_clip_override}."
         )
     if rng is None:
         seed = int(np.random.randint(0, 2**31 - 1))
@@ -203,9 +235,24 @@ def mezo_step(
     perturb_parameters(named, seed=seed, scaling_factor=+1.0, eps=config.eps)
 
     projected_grad = (loss_plus - loss_minus) / (2.0 * config.eps)
-    if config.rho_clip is not None:
+    # Effective clip: override > config.
+    effective_clip = (
+        rho_clip_override if rho_clip_override is not None else config.rho_clip
+    )
+    if effective_clip is not None:
         # Symmetric clipping. Preserves sign; caps |ρ| at the threshold.
-        projected_grad = max(-config.rho_clip, min(config.rho_clip, projected_grad))
+        projected_grad = max(-effective_clip, min(effective_clip, projected_grad))
+    # DP noise (post-clip, per Gaussian-mechanism convention).
+    effective_dp = (
+        dp_sigma_override if dp_sigma_override is not None else config.dp_sigma
+    )
+    if effective_dp is not None and effective_dp > 0:
+        # Use the same numpy RNG so DP noise is reproducible per (seed, run).
+        if rng is None:
+            noise = float(np.random.normal(0.0, float(effective_dp)))
+        else:
+            noise = float(rng.normal(0.0, float(effective_dp)))
+        projected_grad = projected_grad + noise
     return seed, projected_grad, loss_plus
 
 
@@ -579,3 +626,107 @@ def md_mezo_update(
                 dtype=param.data.dtype,
             )
             param.data.add_(z, alpha=-config.lr * rho_k * inv_K)
+
+
+# ---------------------------------------------------------------------------
+# B1: Adaptive ρ-clipping state (running quantile of |ρ| history)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class AdaptiveClipState:
+    """Running-window quantile estimator for the ρ-clipping threshold.
+
+    Maintains a sliding window of recent ``|ρ|`` values and exposes
+    :meth:`current_threshold` returning ``α · quantile(|ρ| history)``.
+    Callers pass this to :func:`mezo_step` via the ``rho_clip_override`` kwarg.
+
+    Motivation: a fixed ``rho_clip = C`` chosen at design time may be too
+    permissive in low-magnitude regimes (where it does nothing) or too tight
+    in high-magnitude regimes (where it cuts too much signal). The 0.95
+    quantile multiplied by ``α = 1.3`` adapts to the current distribution of
+    ρ during training while still cutting the tail.
+
+    Attributes:
+        window: Number of most-recent ``|ρ|`` samples to keep (e.g., 50).
+        quantile: Quantile in (0, 1) — typically 0.95 (cuts ~5% tail).
+        alpha: Multiplier on the quantile to get the final clip threshold.
+            ``α = 1.3`` lets the top 5% of the distribution survive ~30% larger
+            magnitude before clipping kicks in.
+        min_samples: Minimum samples in history before adaptive threshold is
+            computed; below this, :meth:`current_threshold` returns ``None``
+            and callers should fall back to ``config.rho_clip`` (if set).
+        history: Internal — most recent ``|ρ|`` values. Don't mutate directly.
+
+    Notes:
+        - Per-client adaptive clip — each client tracks its own ρ distribution.
+          In IID setup these should be similar; in non-IID Dir(α) settings they
+          may drift apart, which is a feature not a bug (each client adapts to
+          its own data shard).
+        - The threshold is **monotonically increasing** in α and quantile, so
+          ``α = 1.3`` with ``q = 0.95`` is more permissive than fixed C = 50
+          when the median ρ is small (early/late phases of training).
+    """
+
+    window: int = 50
+    quantile: float = 0.95
+    alpha: float = 1.3
+    min_samples: int = 10
+    history: list[float] = field(default_factory=list)
+
+    def update(self, abs_rho: float) -> None:
+        """Append the latest ``|ρ|`` to the running buffer."""
+        self.history.append(float(abs_rho))
+        if len(self.history) > self.window:
+            # Slice to drop oldest. List ops are O(n) here but window is small (~50).
+            self.history = self.history[-self.window:]
+
+    def current_threshold(self) -> float | None:
+        """Compute the current clip threshold from the running buffer.
+
+        Returns:
+            ``α * quantile(|ρ| history)`` if at least ``min_samples`` history
+            available, else ``None`` (caller should use ``config.rho_clip``
+            fallback).
+        """
+        if len(self.history) < int(self.min_samples):
+            return None
+        q = float(np.quantile(self.history, float(self.quantile)))
+        thr = float(self.alpha) * q
+        # Guard against degenerate zero quantile (all-zero history).
+        return thr if thr > 0 else None
+
+
+# ---------------------------------------------------------------------------
+# DP utility (D2): privacy accounting for Gaussian-mechanism MeZO
+# ---------------------------------------------------------------------------
+
+
+def dp_epsilon_from_sigma(sigma: float, sensitivity: float, delta: float) -> float:
+    """Compute the (ε, δ)-DP guarantee for the Gaussian mechanism on ρ.
+
+    Per Dwork-Roth 2014 (Theorem A.1, Gaussian mechanism), adding ``N(0, σ²)``
+    noise to a function with L2-sensitivity Δ yields ``(ε, δ)``-DP for any
+    ``δ ∈ (0, 1)`` such that
+
+        σ ≥ Δ · √(2 ln(1.25 / δ)) / ε,
+
+    rearranged:
+
+        ε = Δ · √(2 ln(1.25 / δ)) / σ.
+
+    For our setup, ``Δ = C`` (the ρ-clip threshold bounds per-record contribution).
+
+    Args:
+        sigma: Standard deviation of Gaussian noise applied to ρ.
+        sensitivity: Per-record sensitivity bound (= clip threshold C).
+        delta: Failure probability δ for (ε, δ)-DP. Typically 1/N where N is
+            dataset size (here, 500 / 1000 = 1e-3 ish).
+
+    Returns:
+        Privacy parameter ε. Smaller is stronger privacy. ``σ → ∞`` gives ``ε → 0``;
+        ``σ → 0`` gives ``ε → ∞`` (no privacy).
+    """
+    if sigma <= 0:
+        return float("inf")
+    return float(sensitivity * math.sqrt(2.0 * math.log(1.25 / delta)) / sigma)

@@ -53,6 +53,18 @@ class NesterovState:
             Out-of-range round indices are clamped to the [0, total-1] interval.
         velocities: Per-parameter velocity tensors, keyed by parameter name.
             Allocated lazily.
+        drift_window: Window size (in rounds) for late-stage drift detection.
+            Default 0 = drift detection DISABLED (original behavior). When > 0,
+            :meth:`check_drift_and_reset` compares current loss vs loss
+            ``drift_window`` rounds ago; if increase exceeds ``drift_threshold``,
+            zeroes out the velocity buffer (B5 improvement, 2026-05-20).
+        drift_threshold: Threshold for drift detection — current loss minus loss
+            ``drift_window`` rounds ago must exceed this value to trigger reset.
+            Default 0.0 = effectively disabled (any drift triggers). Typical
+            values: 0.05 (sensitive), 0.1 (moderate), 0.2 (conservative).
+        loss_history: Internal — running window of (round_idx, loss) for drift
+            detection. Bounded length ``drift_window + 1``. Don't mutate directly.
+        n_resets: Counter of how many drift-resets occurred. Read for diagnostics.
     """
 
     beta: float = 0.9
@@ -60,6 +72,11 @@ class NesterovState:
     beta_end: float | None = None
     num_rounds_total: int | None = None
     velocities: dict[str, torch.Tensor] = field(default_factory=dict)
+    # B5: drift detection / reset.
+    drift_window: int = 0
+    drift_threshold: float = 0.0
+    loss_history: list[float] = field(default_factory=list)
+    n_resets: int = 0
     # Snapshotted at construction so update_schedule can interpolate from the
     # original start even if ``beta`` has been mutated by prior schedule calls.
     _beta_start: float = field(init=False, default=0.0)
@@ -92,6 +109,46 @@ class NesterovState:
         r = min(max(round_idx, 0), total - 1)
         progress = r / (total - 1)
         self.beta = self._beta_start + progress * (float(self.beta_end) - self._beta_start)
+
+    def check_drift_and_reset(self, current_loss: float) -> bool:
+        """Drift detection / velocity reset (B5 improvement).
+
+        If late-stage drift is detected (``current_loss`` exceeds loss from
+        ``drift_window`` rounds ago by more than ``drift_threshold``), zero out
+        all velocity buffers. Then loss_history is cleared so we don't
+        immediately re-trigger on the next step.
+
+        Args:
+            current_loss: Current step's training loss (or any monotone signal
+                of trajectory health, e.g., loss_plus from mezo_step).
+
+        Returns:
+            True if a reset was triggered this round, False otherwise.
+
+        Notes:
+            - When ``drift_window <= 0`` OR ``drift_threshold <= 0``, this method
+              is a no-op (returns False without updating state).
+            - First ``drift_window`` calls always return False (insufficient
+              history to detect drift).
+            - Resetting velocities effectively restarts D-MeZO-N as plain
+              vanilla D-MeZO for one round (β still applied next round per
+              schedule, but ``v = 0`` so no momentum carry-over).
+        """
+        if self.drift_window <= 0 or self.drift_threshold <= 0:
+            return False
+        self.loss_history.append(float(current_loss))
+        if len(self.loss_history) > self.drift_window + 1:
+            self.loss_history.pop(0)
+        if len(self.loss_history) < self.drift_window + 1:
+            return False
+        drift = float(current_loss) - float(self.loss_history[0])
+        if drift > float(self.drift_threshold):
+            self.reset()
+            self.n_resets += 1
+            # Clear history so we don't fire again immediately on next step.
+            self.loss_history = [float(current_loss)]
+            return True
+        return False
 
 
 def _ensure_velocity_buffer(state: NesterovState, name: str, param: nn.Parameter) -> torch.Tensor:
