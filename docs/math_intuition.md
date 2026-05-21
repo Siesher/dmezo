@@ -5,9 +5,11 @@
 **Уровень читателя:** знает SGD, Adam, моменты, базовый matrix calculus. **Не объясняем** что такое градиент или backprop. **Объясняем** почему MeZO работает, что такое effective rank, как работает Lyapunov-функция.
 
 **Связанные документы:**
+- `docs/dmezo_vs_existing.md` — **отличия от всех существующих подходов** простыми словами (для defense / quick onboarding).
 - `docs/theory_rigorous.md` — формальные доказательства T1, T2, T3, T4 со всеми леммами.
 - `docs/paper_ru.md`, `docs/paper_en.md` — статья.
 - `docs/03-algorithm-spec.md` — формальная спецификация алгоритма.
+- `docs/litreview_dmezo_n_2026-05-21.md` — академический literature review с arXiv IDs.
 
 ---
 
