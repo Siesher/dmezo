@@ -20,8 +20,12 @@ Key differences vs D-MeZO-N:
     | Variance reduction  | 1/n on sigma_z + sigma_d  | 1/n on sigma_d only       |
     | Topology            | Decentralized (W)         | Star (central server)     |
     | Momentum            | Heavy-ball + beta-decay   | None                      |
-    | rho-clipping        | Yes (C=50)                | No                        |
+    | rho-clipping        | B1 adaptive (q95 * 1.3)   | No                        |
+    | drift-reset         | B5 (window=50, thr=0.1)   | No                        |
     | Communication       | O(n) scalars (peer-peer)  | O(n) scalars (to server)  |
+
+D-MeZO-N variant = v2 combo (B1 adaptive_clip + B5 drift-reset + heavy-ball + beta-decay).
+v1 (fixed C=50) was multi-seed falsified in section 22; do not re-introduce.
 
 For paired comparison we keep all hyperparameters identical (lr, eps, n_clients,
 num_rounds, data partition); only the variant logic differs.
@@ -71,7 +75,7 @@ from dmezo.federated.client import ClientState  # noqa: E402
 from dmezo.federated.simulator import SimulatorConfig, run_simulation  # noqa: E402
 from dmezo.federated.topology import complete_graph  # noqa: E402
 from dmezo.mezo.nesterov import NesterovState  # noqa: E402
-from dmezo.mezo.step import MeZOConfig, mezo_step, mezo_update  # noqa: E402
+from dmezo.mezo.step import AdaptiveClipState, MeZOConfig, mezo_step, mezo_update  # noqa: E402
 from dmezo.models.loader import load_causal_lm  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="[%(asctime)s] %(message)s")
@@ -105,10 +109,24 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument("--eval-every", type=int, default=100)
     p.add_argument("--eval-batches", type=int, default=20)
-    # D-MeZO-N hyperparameters.
-    p.add_argument("--rho-clip", type=float, default=50.0)
+    # D-MeZO-N v2 hyperparameters (combo B1 adaptive_clip + B5 drift-reset).
+    # Defaults match the section 22 paper-scale run (Qwen3.5-4B-Base / MathLogicQA).
+    # NOTE: --rho-clip retained for legacy/diagnostic; ignored when variant=dmezo_n
+    # (variant always uses adaptive clip overriding the fixed C).
+    p.add_argument("--rho-clip", type=float, default=50.0,
+                   help="LEGACY: fixed C. Ignored for dmezo_n (which uses adaptive_clip).")
     p.add_argument("--beta-start", type=float, default=0.9)
     p.add_argument("--beta-end", type=float, default=0.0)
+    p.add_argument("--ac-window", type=int, default=50,
+                   help="B1 adaptive_clip rolling window in rounds.")
+    p.add_argument("--ac-quantile", type=float, default=0.95,
+                   help="B1 adaptive_clip quantile of |rho| history.")
+    p.add_argument("--ac-alpha", type=float, default=1.3,
+                   help="B1 adaptive_clip multiplier on the quantile.")
+    p.add_argument("--drift-window", type=int, default=50,
+                   help="B5 drift-reset rolling window (rounds).")
+    p.add_argument("--drift-threshold", type=float, default=0.1,
+                   help="B5 drift-reset threshold on loss increase to trigger v=0.")
     p.add_argument(
         "--resume", action="store_true",
         help="If checkpoint JSON exists, reload completed cells and skip them.",
@@ -175,25 +193,36 @@ def _eval_metrics(model, eval_loader, args):
 
 
 def _run_one_cell_dmezo(*, args, variant: str, seed: int, dtype) -> dict:
-    """vanilla or dmezo_n via existing simulator. Identical to validate_*.py."""
+    """vanilla or dmezo_n (v2: B1 adaptive_clip + B5 drift-reset + heavy-ball + beta-decay).
+
+    For dmezo_n we set mezo_cfg.rho_clip=None so the AdaptiveClipState override is dominant
+    (see local_test_improvements.py:215-225 for the canonical v2 wiring).
+    """
     torch.manual_seed(seed)
     models, client_loaders, eval_loader = _load_clients(args, seed, dtype)
 
-    rho_clip = args.rho_clip if (variant == "dmezo_n" and args.rho_clip > 0) else None
-    mezo_cfg = MeZOConfig(lr=args.lr, eps=args.eps, rho_clip=rho_clip)
+    # v2: rho_clip=None lets AdaptiveClipState drive per-step clipping.
+    mezo_cfg = MeZOConfig(lr=args.lr, eps=args.eps, rho_clip=None)
 
     clients = []
     for ci in range(args.n_clients):
         ns = None
+        acs = None
         if variant == "dmezo_n":
             ns = NesterovState(
                 beta=args.beta_start, look_ahead=False,
                 beta_end=args.beta_end, num_rounds_total=args.num_rounds,
+                drift_window=args.drift_window,
+                drift_threshold=args.drift_threshold,
+            )
+            acs = AdaptiveClipState(
+                window=args.ac_window, quantile=args.ac_quantile, alpha=args.ac_alpha,
             )
         clients.append(ClientState(
             client_id=ci, model=models[ci], dataloader=client_loaders[ci],
             mezo_config=mezo_cfg, local_steps=1, nesterov_state=ns,
             rng=np.random.default_rng(seed + ci),
+            adaptive_clip_state=acs,
         ))
 
     topology = complete_graph(args.n_clients)
@@ -410,6 +439,9 @@ def _save_checkpoint(json_path, args, cells, paired_analyses=None) -> None:
         "seeds": args.seeds, "variants": args.variants,
         "eval_examples": args.num_eval_examples,
         "rho_clip": args.rho_clip, "beta_start": args.beta_start, "beta_end": args.beta_end,
+        "ac_window": args.ac_window, "ac_quantile": args.ac_quantile, "ac_alpha": args.ac_alpha,
+        "drift_window": args.drift_window, "drift_threshold": args.drift_threshold,
+        "dmezo_n_variant": "v2_combo_B1_adaptive_clip_B5_drift_reset",
         "cells": cells, "paired_analyses": paired_analyses or {},
     }
     json_path.write_text(json.dumps(out, indent=2, ensure_ascii=False))
