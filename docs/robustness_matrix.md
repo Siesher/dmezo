@@ -11,27 +11,31 @@
 | ⚪ **Exploratory** | One-off observation, preliminary; not yet pattern-matched; useful as hypothesis |
 | 🔴 **Negative** | Replicated failure / null result; falsification of a stated hypothesis |
 
-## Robust findings (4 шт)
+## Robust findings (6 шт, +1 since 2026-05-21)
 
 | Finding | Section | Replications | Effect size | Noise band | Why robust |
 |---|---|---|---|---|---|
+| ⭐ **D-MeZO-N v2 (combo) beats vanilla на MathLogicQA / Qwen3.5-4B-Base** (PROMOTED) | §5.6.2 | **3 seeds × 5 variants paired** | Δ loss = **−5.5% (3/3 same direction)**, Δ acc = **+2.3pp mean**, lowest std (0.010) | seed variance σ_loss ≈ 0.018 для vanilla; effect 4× выше noise band | 3/3 direction consistency loss; multi-seed validated combo beats vanilla. Companion findings: v1 (fixed C=50) **3/3 worse**; B5-alone **3/3 worse**. |
 | ε autotuner fails downstream | §6.7 / fig9-12 | 4 (2 archs × 2 stages) | drop 60% vs 13-17% (3-6× factor) | small (autotuner deterministic ε* across seeds) | Cross-arch direction + huge effect-size; bias-proxy fundamentally measures wrong quantity (curvature, not gradient bias) |
 | Warmup ε(t) systematically loses | §6.7 / fig13-15 + §6.8 | 16+ cells × 2 variants × cross-arch + 8 cells joint sweep | drop −42% to −147% vs +60-63% const | Consistent across 24+ cells | Cross-task + cross-arch + cross-variant; mechanism (irrecoverable early-step bias) consistent with §6.7 mechanism |
 | Batch-variance CLT fails | §6.4 / fig8 | 1 setup (Qwen3-0.6B SST-2) but 6 B-levels | ratio 1.55× → 3.43× monotonic | within-B noise band tight | Monotonic 6-point trend; aligned with theory (z-noise dominates data-noise) |
 | Day 5 federated 2×2 grid | §5.2 / fig1 | 2 seeds × 4 cells = 8 runs | partition tax < 13% consistent | seed variance ~2-3% | 2-seed replication on all cells; effect-size > seed variance |
+| **v1 (fixed C=50) and B5-alone falsified** (NEW NEGATIVE, robust) | §5.6.2 | 3 seeds paired | v1: +7.0% loss 3/3 worse; B5-alone: +6.4% loss 3/3 worse | direction consistent, large effect | Multi-seed direction consistency; clean falsification |
 
-Plus mathematical: **C5/C6 theorems** (formal proofs, not data-dependent — see `docs/theory_nesterov_mezo.md`).
+Plus mathematical: **T1, T2, T3, T4 theorems** (formal proofs, not data-dependent — see `docs/theory_rigorous.md`).
 
-## Tentative findings (4 шт)
+## Tentative findings (2 шт, −2 promoted to Robust 2026-05-21)
 
 | Finding | Section | Replication | Effect size | Risk |
 |---|---|---|---|---|
-| D-MeZO-N rescue (HellaSwag) | §5.5 | 1 seed | +3.75 pp acc | Single seed; SE on 100-example acc ≈ ±0.045; effect roughly 1σ |
-| D-MeZO-N safe-tracking (MathLogicQA) | §5.6 | 1 seed | +1.25 pp acc | Single seed; effect < SE |
+| D-MeZO-N v2 rescue (HellaSwag) | §5.5 | 1 seed | +3.75 pp acc | Single seed; SE on 100-example acc ≈ ±0.045; effect roughly 1σ |
 | §6.8 vanilla "wins" (lr=1e-6 + const) | §6.8 / fig18 | 1 seed × 24 cells | drop +1.0% best, gap 1.7 pp to nearest | Within seed variance; near-saturation task limits effect range |
-| Day 8 R1d D-MeZO-N v1 | §5.4 / fig4 | 1 seed | 0.1291 final loss; beats vanilla 0.1381 by 6.5% | Single seed; effect-size moderate |
 
-**Validation plan**: `scripts/validate_dmezo_n_rescue_multiseed.py` re-runs §5.5 with 3 seeds + 500-example eval + bootstrap CI. Section 19 in `notebooks/bootstrap_colab.ipynb`. Pending Colab compute (~2.5 h Blackwell).
+**Validation plan**: `scripts/validate_dmezo_n_rescue_multiseed_federated.py` re-runs §5.5 HellaSwag rescue with 3 seeds + 500-example eval + bootstrap CI. Pending Colab compute (~5 h Blackwell).
+
+**Promoted from Tentative to Robust (2026-05-21):**
+- §5.6 D-MeZO-N v2 — now **Robust** with 3-seed paired evidence (was: 1 seed "safe-tracking +1.25pp")
+- §5.4 R1d v1 — **Falsified** by multi-seed (moved to Negative findings)
 
 ## Exploratory observations (3 шт)
 

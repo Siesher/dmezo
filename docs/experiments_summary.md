@@ -20,6 +20,7 @@
 | MathLogicQA | 2026-05-18 | §5.6 | Qwen3.5-4B-Base | MathLogicQA (Russian) | D-MeZO-N v1, 4 clients | 🟡 | safe-tracking +1.25pp acc; cross-lingual + cross-reasoning generality |
 | K=3 ablation | 2026-05-18 | §6.5 | Qwen3.5-4B-Base | SST-2 worst cell | MD-D-MeZO-N K=3 vs K=1 | 🟢 | K=3 loss WORSE +41.6%, acc BETTER +1.25pp; Pareto trade-off |
 | Batch variance | 2026-05-15 | §6.4 | Qwen3-0.6B | SST-2 | 100 batches × B ∈ {1,...,32}, fixed z | 🟢 | $1/\sqrt{B}$ CLT **fails**: ratio 1.55× (B=2) → 3.43× (B=32) |
+| **§22 paper-scale multi-seed** | **2026-05-21** | **§5.6.2** | **Qwen3.5-4B-Base** | **MathLogicQA** | **3 seeds × 5 variants × 1000 rounds; 15-cell grid; ~12h Blackwell** | 🟢 | **D-MeZO-N v2 (combo) beats vanilla: Δ loss = −5.5% (3/3 same direction), Δ acc = +2.3pp mean. v1 (fixed C=50) and B5-alone robustly falsified (3/3 worse).** ⭐ First paper-scale multi-seed validated D-MeZO-N win |
 
 ## Diagnostic ablations (§6.7 family — 2026-05-19)
 
