@@ -4,20 +4,30 @@
 
 ## TL;DR проекта
 
-Исследовательский проект на стыке zeroth-order оптимизации, federated learning и LLM fine-tuning. Цель — построить и проанализировать **Decentralized Federated MeZO с Nesterov-ускорением** (рабочее имя: **D-MeZO-N**) и показать, что он эффективен на современных open-weight LLM (Qwen3-4B как основная модель).
+Исследовательский проект на стыке zeroth-order оптимизации, federated learning, LLM fine-tuning и differential privacy. Главный артефакт — **D-MeZO-N v2 = combo (adaptive ρ-clip B1 + drift-reset B5)**, peer-to-peer decentralized federated ZO оптимизатор для дообучения LLM с формальными convergence theorems (T3 closes Princeton OP1) и DP-гарантией (T4).
 
-Ключевая идея: MeZO передаёт между клиентами **один скаляр $\hat\rho$ + общий seed** вместо миллиардов весов. Это идеально подходит под decentralized peer-to-peer сценарий. Соединяем с consensus mixing (à la Koloskova et al. 2020) и Nesterov-look-ahead → получаем алгоритм, у которого нет прямого аналога в литературе.
+**Ключевые отличия от FedKSeed (closest competitor):**
+1. **Independent z_i per client** (не shared seed) → 1/n variance speedup по обеим компонентам шума (data + direction)
+2. Peer-to-peer (any doubly-stochastic W), не star topology
+3. Heavy-ball momentum stabilization с формальной Lyapunov-сходимостью
+4. Dual-use ρ-clip как L2-sensitivity для Gaussian-mechanism DP
 
-## Текущее состояние проекта
+## Текущее состояние проекта (2026-05-21)
 
-Этап: **скелет создан, pre-flight локально пройден, Day 1 sanity готов к Colab**. Что есть:
+Этап: **paper-scale multi-seed validation FINALIZED, defense kit ready**. Защита 2026-05-23 (Bauman MSTU Калуга).
 
-- Core MeZO step (`src/dmezo/mezo/`) — основан на референсной имплементации Princeton, адаптирован под HF Transformers AutoModel.
-- Federated simulator (`src/dmezo/federated/`) — in-process многоклиентный симулятор с настраиваемой topology. Покрыт интеграционными тестами (`tests/test_consensus.py`, `tests/test_simulator.py`); `consensus_via_updates` переписан под O(np), исправлен баг с двойным update в `update_share`. См. `docs/07-audit-harden.md`.
-- Day 1 скрипт (`scripts/01_sanity_check_mezo.py`) — централизованный MeZO с MLflow tracking. Изначально прогнан на Qwen3-0.6B / SST-2 (RTX 2080, fp16, 100 шагов): eval loss 1.55 → 0.33 (−78%), 12s wall-clock. Pipeline работает на обеих платформах.
-- Configs: `configs/qwen3_4b_sst2.yaml` (Colab/Blackwell), `configs/qwen3_06b_preflight.yaml` (изначально под Turing — fp16, no flash-attn; теперь подходит и для bf16 на 5070 Ti).
-- Experiment tracking: **MLflow** (file backend, `./mlruns/`). См. `mlflow ui --backend-store-uri file:./mlruns`. НЕ предлагай wandb/aim/TensorBoard, выбор сделан осознанно.
-- Документация в `docs/` — лит-обзор, спецификация алгоритма, шаблон теоремы, недельный план.
+**Headline:** На Qwen3.5-4B-Base / MathLogicQA / 3 seeds paired D-MeZO-N v2 (combo B1+B5) robustly beats vanilla MeZO: Δ loss = −5.5% (3/3 same direction), Δ acc = +2.3pp mean, lowest std loss across семейства методов с моментом (0.010 vs vanilla 0.018). Первое paper-scale multi-seed validated empirical улучшение D-MeZO над vanilla MeZO. См. `docs/multiseed_analysis.md` §22.
+
+**Что готово:**
+
+- Core MeZO step (`src/dmezo/mezo/`) — adaptive clip + drift-reset + β-decay + DP noise. Princeton-style perturbation invariants сохранены.
+- Federated simulator (`src/dmezo/federated/`) — independent per-client RNG (см. `client.py:62`). Поддерживает `weight_avg` (полный exchange) и `update_share` (16 байт/раунд) consensus modes. **Note:** `update_share + Nesterov` not yet integrated (NotImplementedError) — используем `weight_avg` для momentum runs.
+- Tests: 128/128 pass, ~95% coverage critical paths.
+- Configs: 28+ YAML files в `configs/`.
+- Experiments: 28+ runs documented в `docs/experiments_summary.md`. Headline run — §22 paper-scale (3 seeds × 5 variants × 1000 rounds на Qwen3.5-4B-Base / MathLogicQA), ~12h Colab Blackwell.
+- Defense kit: `docs/defense_*.md` (4 docs) — talking points, design brief для Claude Design, paper patches, FedKSeed Q&A. Plus `docs/math_intuition.md` для plain-language explanation.
+- Theorems: T1 (convex+momentum+decentralized), T2 (PL no momentum), T3 (PL + heavy-ball + clip + β-decay, closes Princeton OP1), T4 (DP extension of T3). Полные доказательства в `docs/theory_rigorous.md`.
+- Experiment tracking: **MLflow** (file backend, `./mlruns/`). НЕ предлагай wandb/Aim/TensorBoard.
 
 **Локальная разработка на CUDA torch.** Текущее железо: **RTX 5070 Ti Blackwell (sm_120, 17 GB VRAM)** + Ryzen 9 9950X + 32 GB RAM, Windows 11 + PowerShell. Установлен `torch==2.12.0+cu130` через `uv pip install --index-url https://download.pytorch.org/whl/cu130 --reinstall-package torch`. Так как `pyproject.toml` не пинит CUDA-вариант, любой `uv run` (он же `uv sync`) перезатирает torch на CPU build. **Использовать `uv run --no-sync ...` для всех локальных команд**, иначе CUDA torch исчезнет.
 
@@ -29,7 +39,15 @@
 
 **Seed-based in-place perturbation.** MeZO работает только если возмущение $z_t$ полностью определяется seed-ом и не хранится явно. См. `src/dmezo/mezo/perturbation.py`. Не вводи torch tensors для $z$ — это убьёт memory-efficiency, которая является главным selling point метода.
 
-**Один скаляр на раунд коммуникации.** В federated коде передавай между клиентами `(seed: int, projected_grad: float)`. Никаких array-обменов между клиентами. Если соблазн появился — это значит, ушли в FedAvg-style, что противоречит идее проекта.
+**Independent z_i per client (не shared seed).** Каждый клиент имеет свой `np.random.Generator` (`src/dmezo/federated/client.py:62`) и сэмплирует свой $s_i^t$ независимо. Это **критично** для $1/n$ variance speedup по direction noise (Theorem 2). НЕ менять на shared-seed broadcast (это FedKSeed-style, наш алгоритмический differentiator). См. § 3.3 в `docs/math_intuition.md` для обоснования.
+
+**Между клиентами передаётся (seed, ρ) пара, не array.** В `consensus_via_updates` коде передавай между клиентами `(s_i: int, ρ_i: float)` — 16 байт/раунд/сосед. Каждый клиент локально регенерирует $z_j$ из полученного $s_j$ для apply update. Никаких array-обменов между клиентами (это FedAvg style).
+
+**D-MeZO-N v2 = combo (B1 adaptive_clip + B5 drift-reset)**, не v1. v1 (fixed C=50) multi-seed falsified — 3/3 worse than vanilla на Qwen3.5-4B-Base / MathLogicQA. Recipe v2:
+- Adaptive clip: `AdaptiveClipState(window=50, quantile=0.95, alpha=1.3)` в `src/dmezo/mezo/step.py`
+- Drift-reset: в `src/dmezo/mezo/nesterov.py::NesterovState.check_drift_and_reset` (window=50, threshold=0.1)
+- β-decay linear 0.9 → 0
+- lr=3e-7, ε=1e-3 (Princeton defaults)
 
 **Eval-mode и `inference_mode` во время MeZO forward.** Dropout должен быть выключен, autograd — выключен. См. `zo_forward` в принстонском коде.
 
@@ -73,29 +91,41 @@
 
 **Nesterov + update_share падает с NotImplementedError.** Это сознательное ограничение — velocity-update внутри consensus не реализован (см. `docs/07-audit-harden.md` D1). Используй либо `consensus_mode="weight_avg"` (Nesterov работает локально), либо `nesterov_state=None`.
 
-## Roadmap и приоритеты
+## Roadmap и приоритеты (на 2026-05-21, post-defense)
 
-См. `docs/05-week1-plan.md` для детального плана недели. Краткая последовательность:
+Краткосрочно (до защиты 2026-05-23):
+- Финальный polish слайдов от Claude Design (см. `docs/defense_design_brief.md`)
+- Dry-run защиты × 2
+- Прочитать `docs/defense_talking_points.md` 2 раза
 
-1. **Day 1 (priority 0):** запуск `scripts/01_sanity_check_mezo.py` на Colab, подтверждение что MeZO сходится на Qwen3-4B / SST-2.
-2. Day 2: лит-обзор (FedKSeed, FedZeN, Ferret), centralized baselines на BoolQ/COPA.
-3. Day 3: теоретический шаблон, см. `docs/04-theory-template.md`.
-4. Day 4: первая версия D-MeZO на 2 клиентах.
-5. Day 5: 4 клиента + non-IID + topologies.
-6. Day 6: stretch — Qwen3-8B или Qwen3.5-4B (gated-deltanet experiment).
-7. Day 7: one-pager + ablations.
+Post-defense follow-ups (в `docs/upgrade_roadmap.md`):
+- HellaSwag rescue multi-seed (3 seeds × Qwen3-4B) — script готов
+- Head-to-head FedKSeed (3 variants × 2-3 seeds) — script готов
+- Scale-up Qwen3-8B / n=8 clients
+- Generative tasks (SAMSum, GSM8K)
+- Full decentralized Theorem 3 (Open Problem 2)
+- Subsampling DP amplification
 
 ## Полезные команды
 
 ```bash
 # Установка
-pip install -e .
+uv pip install -e .
 
 # Day 1 sanity check
-python scripts/01_sanity_check_mezo.py --config configs/qwen3_4b_sst2.yaml
+uv run --no-sync python scripts/01_sanity_check_mezo.py --config configs/qwen3_4b_sst2.yaml
 
-# Тесты
-pytest tests/ -v
+# Multi-seed validation (paper headline reproduce)
+uv run --no-sync python scripts/local_test_improvements.py \
+    --model Qwen/Qwen3.5-4B-Base --task mathlogicqa --seeds 42 43 44 \
+    --variants vanilla dmezo_n dmezo_n_drift dmezo_n_adaptive_clip dmezo_n_combo
+
+# Тесты (128/128 pass)
+uv run --no-sync pytest tests/ -v
+
+# Rebuild paper docx после edits
+uv run --no-sync python scripts/99_build_paper_docx_ru.py
+uv run --no-sync python scripts/99_build_paper_docx.py
 ```
 
 ## Дополнительный контекст
