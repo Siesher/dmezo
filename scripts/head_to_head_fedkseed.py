@@ -109,6 +109,10 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--rho-clip", type=float, default=50.0)
     p.add_argument("--beta-start", type=float, default=0.9)
     p.add_argument("--beta-end", type=float, default=0.0)
+    p.add_argument(
+        "--resume", action="store_true",
+        help="If checkpoint JSON exists, reload completed cells and skip them.",
+    )
     return p.parse_args()
 
 
@@ -394,6 +398,23 @@ def _paired_analysis(cells, variant_a, variant_b, seeds):
     }
 
 
+def _save_checkpoint(json_path, args, cells, paired_analyses=None) -> None:
+    """Write current cells dict so a crash mid-run doesn't lose completed cells.
+
+    Called after each cell completes and once more at the end with paired_analyses.
+    """
+    out = {
+        "model": args.model, "task": args.task, "dtype": args.dtype,
+        "n_clients": args.n_clients,
+        "num_rounds": args.num_rounds, "lr": args.lr, "eps": args.eps,
+        "seeds": args.seeds, "variants": args.variants,
+        "eval_examples": args.num_eval_examples,
+        "rho_clip": args.rho_clip, "beta_start": args.beta_start, "beta_end": args.beta_end,
+        "cells": cells, "paired_analyses": paired_analyses or {},
+    }
+    json_path.write_text(json.dumps(out, indent=2, ensure_ascii=False))
+
+
 def main() -> int:
     args = parse_args()
     out_dir = ROOT / "experiments" / "diagnostics"
@@ -407,12 +428,26 @@ def main() -> int:
     dtype = getattr(torch, args.dtype)
 
     cells = {}
+    if args.resume and json_path.exists():
+        try:
+            prev = json.loads(json_path.read_text())
+            cells = prev.get("cells", {})
+            logger.info(
+                f"Resume: loaded {len(cells)} completed cells from {json_path.name}"
+            )
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning(f"Resume failed ({e}); starting fresh")
+            cells = {}
+
     grid_total = len(args.seeds) * len(args.variants)
     done = 0
     for s in args.seeds:
         for variant in args.variants:
             done += 1
             key = f"{variant}|seed={s}"
+            if key in cells:
+                logger.info(f"=== [{done}/{grid_total}] {key} [SKIP: resumed] ===")
+                continue
             logger.info(f"=== [{done}/{grid_total}] {key} ===")
             if variant == "fedkseed":
                 cells[key] = _run_one_cell_fedkseed(args=args, seed=s, dtype=dtype)
@@ -420,6 +455,7 @@ def main() -> int:
                 cells[key] = _run_one_cell_dmezo(
                     args=args, variant=variant, seed=s, dtype=dtype
                 )
+            _save_checkpoint(json_path, args, cells)
 
     # Paired analyses for all pairs of variants.
     paired = {}
@@ -436,16 +472,7 @@ def main() -> int:
             cells, "dmezo_n", "fedkseed", args.seeds
         )
 
-    out = {
-        "model": args.model, "task": args.task, "dtype": args.dtype,
-        "n_clients": args.n_clients,
-        "num_rounds": args.num_rounds, "lr": args.lr, "eps": args.eps,
-        "seeds": args.seeds, "variants": args.variants,
-        "eval_examples": args.num_eval_examples,
-        "rho_clip": args.rho_clip, "beta_start": args.beta_start, "beta_end": args.beta_end,
-        "cells": cells, "paired_analyses": paired,
-    }
-    json_path.write_text(json.dumps(out, indent=2, ensure_ascii=False))
+    _save_checkpoint(json_path, args, cells, paired_analyses=paired)
     logger.info(f"Saved JSON to {json_path}")
 
     # Figure: 3-panel comparison.
