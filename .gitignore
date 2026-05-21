@@ -59,3 +59,6 @@ logs/
 
 # Stray pytest tmp caches
 pytest-cache-files-*/
+
+# Private / personal drafts (not for public repo)
+docs/private/

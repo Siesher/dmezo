@@ -13,40 +13,59 @@
 - $\hat\rho_i^t = (\mathcal L_i(\theta_i^t + \epsilon z_t) - \mathcal L_i(\theta_i^t - \epsilon z_t)) / (2\epsilon)$ — projected gradient клиента $i$
 - $v_i^t \in \mathbb R^d$ — velocity buffer клиента $i$
 
-## Псевдокод D-MeZO-N (consensus_via_updates)
+## Псевдокод D-MeZO-N (consensus_via_updates) — INDEPENDENT seeds per client
+
+**Важно:** в отличие от FedKSeed (shared $z_t$ broadcast от центрального сервера), у нас **каждый клиент сэмплирует свой $s_i^t$ независимо**. Это критично для $1/n$ variance reduction в federated stochastic floor (Theorem 2 § 4.4 в paper и `docs/theory_rigorous.md` §2). Earlier draft этой spec ошибочно описывал shared seed — мы это исправили consistent с реальной имплементацией в `src/dmezo/federated/client.py::ClientState`.
 
 ```
 INPUT: initial theta_0; lr eta; eps; momentum beta;
        mixing matrix W; rounds T; local data shards {D_i}
-INIT:  for each client i: theta_i = theta_0, v_i = 0
+INIT:  for each client i: theta_i = theta_0, v_i = 0,
+       rng_i = independent np.random.Generator(seed=base + i)
 
 for t = 0 to T-1:
-    # 1. Sample SHARED seed (e.g., from a synchronized counter).
-    s_t = SharedPRNG.next()  // same on all clients
-
-    # 2. Each client computes projected gradient.
+    # 1. Each client samples its OWN seed and computes projected gradient.
     for each client i in parallel:
+        s_i = rng_i.integers(0, 2**31)        // INDEPENDENT per client
+        z_i = generate(s_i)                    // unique direction per client
         sample local batch xi_i ~ D_i
-        z_t = generate(s_t)  // identical across clients (regenerated, not stored)
-        L_plus  = L_i(theta_i + eps * z_t; xi_i)
-        L_minus = L_i(theta_i - eps * z_t; xi_i)
+        L_plus  = L_i(theta_i + eps * z_i; xi_i)
+        L_minus = L_i(theta_i - eps * z_i; xi_i)
         rho_i = (L_plus - L_minus) / (2 * eps)
+        rho_i_tilde = clip(rho_i, ±C)          // optional, для D-MeZO-N
 
-    # 3. Decentralized consensus via update sharing.
+    # 2. Decentralized consensus via update sharing.
     for each client i in parallel:
-        # Receive (rho_j) from all neighbors j with W[i, j] != 0.
-        # Regenerate z_t locally from s_t.
-        weighted_rho = sum_j W[i, j] * rho_j
+        # Receive (rho_j_tilde, s_j) pairs from all neighbors j with W[i, j] != 0.
+        # Locally REGENERATE z_j from s_j (each client got its own seed).
+        accum = 0
+        for each j with W[i, j] != 0:
+            z_j = generate(s_j)                // regenerated locally
+            accum += W[i, j] * rho_j_tilde * z_j
         # Heavy-ball Nesterov:
-        v_i = beta * v_i + weighted_rho * z_t + wd * theta_i
+        v_i = beta * v_i + accum + wd * theta_i
         theta_i = theta_i - eta * v_i
 ```
 
+## Почему independent, а не shared
+
+С shared $z_t$ (как в FedKSeed): $\bar g = \left(\frac{1}{n}\sum_i \hat\rho_i\right) z$ — variance reduction $1/n$ только по data noise; direction noise (вариация по $z$) **не усредняется**.
+
+С independent $z_i$ (наш случай): $\bar g = \frac{1}{n}\sum_i \hat\rho_i z_i$, где каждое $\hat\rho_i z_i$ — независимая unbiased оценка $\nabla L$. По CLT: variance ÷ n **по обоим источникам шума** (data + direction).
+
+Это и есть алгоритмический differentiator D-MeZO-N vs FedKSeed (см. `docs/fedkseed_comparison.md` для подробного теоретического сравнения).
+
 ## Что коммуницируется
 
-За один раунд между парой соседей $(i, j)$ передаётся: **один скаляр** ($\rho_j$). Общий seed $s_t$ синхронизируется через counter и хеш (т.е. фактически не передаётся, а вычисляется детерминированно из round number).
+За один раунд между парой соседей $(i, j)$ передаётся: **один float ($\rho_j$) + один int (seed $s_j$)** = ~12–16 байт (зависит от точности).
 
-**Общий трафик** на раунд: $|E| \cdot 8$ байт (для FP64 скаляра) для графа с $|E|$ рёбрами. Для ring topology с $n = 4$: 4 ребра × 2 направления × 8 байт = **64 байта на раунд**.
+**Общий трафик** на раунд: $|E| \cdot 16$ байт для графа с $|E|$ рёбрами. Для ring topology с $n = 4$: 4 ребра × 2 направления × 16 байт = **128 байт на раунд**.
+
+**Compression vs FedAvg:** для модели на 4B params в bf16 (8 ГБ/раунд/клиент) → ~$5 \times 10^7$× для ring(4), $10^9$× при усреднении по архитектуре с $d \to \infty$.
+
+## Корреляции между клиентами — нет на уровне sampling
+
+$z_i$ и $z_j$ — independent random vectors (разные seeds, разные numpy generators). После consensus mixing $\theta_i^{t+1} = \sum_j W_{ij} \theta_j^{t+1/2}$ параметры клиентов **сближаются** в одну точку, но это convergence в траекториях, не correlation в источнике шума. Lemma 4 (Koloskova-style consensus error) ограничивает per-round дрейф, $z_i$ остаются независимыми при каждом новом sampling.
 
 ## Варианты алгоритма
 
