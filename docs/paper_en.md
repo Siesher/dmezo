@@ -30,9 +30,11 @@ This paper closes the gap with eight contributions:
 
 **MeZO — SPSA for LLMs.** Malladi et al. (2023, NeurIPS) introduced MeZO as SPSA with two key innovations: (i) **Gaussian $z \sim \mathcal{N}(0, I)$** instead of Bernoulli (enables the $r(H)$-trick below), (ii) **in-place seed-reconstructed $z$** — direction $z$ is deterministically regenerated from a seed rather than materialized as a tensor, keeping memory at inference level. Theorem 3.1 proves a variance bound that uses the effective Hessian rank $r(H) := \mathrm{tr}(H)/\|H\|_{op}$ instead of full dimension $d$, justifying applicability at LLM scale ($r(H) \ll d$ for overparametrized transformers).
 
+**$\ell_2$-smoothing analysis (Russian school).** Parallel to SPSA, a Gaussian/uniform-smoothing tradition for convex ZO has been developed (Nesterov-Spokoiny 2017, FOCM). Gasnikov et al. (2023, "Randomized gradient-free methods in convex optimization", *Encyclopedia of Optimization*, arXiv:2211.13566) systematise this framework: two-point estimator $\nabla f_\gamma(x, e) = d \cdot \frac{f(x+\gamma e) - f(x-\gamma e)}{2\gamma} \cdot e$ for $e \sim \mathrm{Unif}(S_2^d)$, bias bound $f(x) \le f_\gamma(x) \le f(x) + \gamma M_2$, and variance bound $\mathbb{E}\|\nabla f_\gamma\|^2 \le \sqrt{2}\min(q, \ln d) d^{2/q} M_2^2$. These bounds form the formal foundation of our convergence proofs T1-T4. The survey covers convex/strongly convex cases with accelerated rates; PL + heavy-ball (where D-MeZO-N operates) is not addressed — this is our delta.
+
 **D-MeZO-N — SPSA + MeZO + 4 new elements.** Our method builds on the SPSA lineage (34 years of stochastic approximation theory) and adds: (1) federated wrapper with **independent per-client $z_i$** plus gossip mixing matrix $W$ (vs FedKSeed-style shared seed pool); (2) heavy-ball scalar momentum with adaptive ρ-clip and drift-reset (vs SPSA's adaptive gain without momentum); (3) closed-form Lyapunov convergence proof under PL (closes Princeton Open Problem 1); (4) dual-use ρ-clip as L2-sensitivity for Gaussian-mechanism DP (a targeted literature search for "DP-SPSA" returns no results — open niche).
 
-**Decentralised SGD.** Koloskova et al. (2020) provide a unified analysis for D-SGD with arbitrary mixing matrices $W$. Their Theorem 2 (convex) and Theorem 8 (PL) bound the convergence rate as a function of the spectral gap $\rho(W)$ and gradient heterogeneity $\zeta^2$.
+**Decentralised SGD.** Koloskova et al. (2020) provide a unified analysis for D-SGD with arbitrary mixing matrices $W$. Their Theorem 2 (convex) and Theorem 8 (PL) bound the convergence rate as a function of the spectral gap $\rho(W)$ and gradient heterogeneity $\zeta^2$. In parallel, Beznosikov, Richtárik et al. (NeurIPS 2022, arXiv:2207.10792) develop decentralized SGD with communication compression for variational inequalities — a VI-counterpart to our 16-byte-per-round economy; Sadiev et al. (2022, *EURO J Comp Opt*) provide lower bounds for decentralized personalized FL that bound the optimality of our T1 from below.
 
 **Federated zeroth-order.** FedKSeed (Qin et al., 2024 ICML), Ferret (Shu et al., 2024) and FedZeN (Maritan et al. 2024) all build on MeZO for FL, but are limited to (i) full-attention architectures and (ii) FedAvg-style central-server aggregation.
 
@@ -508,6 +510,10 @@ We presented D-MeZO-N — Decentralized Federated MeZO with Nesterov-style accel
 
 Aybat, N. S., Fallah, A., Gurbuzbalaban, M., Ozdaglar, A. (2019). A universally optimal multistage accelerated stochastic gradient method. NeurIPS 2019.
 
+Beznosikov, A., Richtárik, P., Diskin, M., Ryabinin, M., Gasnikov, A. (2022). Distributed methods with compressed communication for solving variational inequalities, with theoretical guarantees. NeurIPS 2022. arXiv:2207.10792.
+
+Gasnikov, A., Dvinskikh, D., Dvurechensky, P., Gorbunov, E., Beznosikov, A., Lobanov, A. (2023). Randomized gradient-free methods in convex optimization. *Encyclopedia of Optimization* (Springer), pp. 1–15. arXiv:2211.13566.
+
 Karimi, H., Nutini, J., Schmidt, M. (2016). Linear convergence of gradient and proximal-gradient methods under the Polyak-Łojasiewicz condition. ECML-PKDD 2016.
 
 Koloskova, A., Loizou, N., Boreiri, S., Jaggi, M., Stich, S. U. (2020). A unified theory of decentralized SGD with changing topology and local updates. ICML 2020.
@@ -521,6 +527,8 @@ Nesterov, Y., Spokoiny, V. (2017). Random gradient-free minimization of convex f
 Polyak, B. T. (1964). Some methods of speeding up the convergence of iteration methods. USSR Computational Mathematics and Mathematical Physics 4(5):1–17.
 
 Qin, Z., Chen, D., Qian, B., Ding, B., Li, Y., Deng, S. (2024). FedKSeed. ICML 2024.
+
+Sadiev, A., Borodich, E., Beznosikov, A., Dvinskikh, D., Chezhegov, S., Tappenden, R., Takáč, M., Gasnikov, A. (2022). Decentralized personalized federated learning: Lower bounds and optimal algorithm for all personalization modes. *EURO Journal on Computational Optimization* 10:100041.
 
 Shu, Y., Yao, W., Hu, S. X. (2024). Ferret: federated full-parameter tuning at scale for large language models. arXiv:2409.06277.
 

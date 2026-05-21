@@ -6,6 +6,8 @@
 
 ZO для LLM fine-tuning оформилась вокруг MeZO (NeurIPS 2023) и развивается по трём направлениям: (1) variance reduction (MeZO-SVRG, Sparse MeZO, SubZero), (2) адаптивные ZO-варианты Adam-style (HELENE, AdaMeZO), (3) federated/DP (FedKSeed, Ferret, DPZero). **Ни одна существующая работа не совмещает одновременно**: decentralized P2P topology + independent-seed ZO + heavy-ball momentum со стабилизацией + formal $(\varepsilon, \delta)$-DP для LLM. D-MeZO-N v2 занимает эту нишу.
 
+**Foundational theory** для всех ZO methods в этом обзоре стоит на двух traditions: (a) SPSA family (Spall 1992, см. §A0), (b) Russian school l₂-smoothing analysis (Gasnikov–Beznosikov survey, arXiv:2211.13566, см. §A0.5). Princeton MeZO (Malladi 2023) аккумулирует обе ветви в LLM-scale контексте.
+
 ---
 
 ## Section A0 — SPSA Family (foundational ancestor of MeZO)
@@ -47,6 +49,55 @@ Targeted search для "DP-SPSA" / "private SPSA" / "differentially private zero
   - **DP-ZOSO** (arXiv:2402.07818) — centralized, stagewise scheduler, не SPSA-specific
   - **Distributed DP optimization** (arXiv:2310.11892, arXiv:1512.00369) — control/convex, не LLM, не federated
 - **Conclusion:** decentralized federated DP-ZO для LLM — **open niche**. D-MeZO-N v2 + Theorem 4 occupy эту nichu.
+
+---
+
+## Section A0.5 — Russian school of ZO optimization (Gasnikov–Beznosikov–Lobanov)
+
+Российская школа mathematical optimization (МФТИ + Innopolis + HSE + IITP + WIAS + MBZUAI) — параллельная западной (Princeton, Swiss EPFL/ETH) ветвь теории ZO. Активно публикуется с 2016, существенный вклад в **convex/strongly convex ZO** + **decentralized SGD** + **stochastic VI/saddle-point**. Не покрывает MeZO-style LLM-scale ZO (этого нет в их трудах до 2024), но даёт foundational bias/variance bounds на которых стоят наши proofs T1-T4.
+
+### Главный артефакт — survey 2023/2024
+
+**[Gasnikov, Dvinskikh, Dvurechensky, Gorbunov, Beznosikov, Lobanov 2023]** "Randomized gradient-free methods in convex optimization." *Encyclopedia of Optimization* (Springer). arXiv:2211.13566v3 (Feb 2024). 9 страниц, survey.
+
+**Содержание:** оптимальность ZO-методов по трём осям — oracle complexity, iteration complexity, maximum admissible noise level.
+
+| Результат | Где у нас используется |
+|---|---|
+| **eq. 7** — two-point estimator $\nabla f_\gamma(x,e) = d \cdot \frac{f(x+\gamma e) - f(x-\gamma e)}{2\gamma} \cdot e$ | Это **тот же** estimator что MeZO/D-MeZO; foundational |
+| **T1** (smoothing properties) — bias $\gamma M_2$ + Lipschitz $L = \sqrt{d}M/\gamma$ | Bias bound в нашей T2 (PL convergence) |
+| **T2** (estimator variance) — $\mathbb{E}\|\nabla f_\gamma\|^2 \le \sqrt{2}\min(q, \ln d) d^{2/q} M_2^2$ | $G^2$ в T3 noise-floor |
+| **T3** (accelerated + smoothing) — $O(d^{1/4}\sqrt{LR^2/\varepsilon})$ итераций | Эталон с которым сравнивается наш PL-rate |
+| **§5.3** distributed extensions — упомянуты но мало развиты | Положительный gap для нас |
+
+**Что survey НЕ покрывает (наш delta):**
+- Non-convex / PL (только convex / strongly convex) → наши **T2, T3 под PL**
+- Heavy-ball momentum для ZO (только Nesterov-look-ahead accelerated) → наша **scalar heavy-ball + adaptive clip**
+- Federated decentralized ZO для LLM (теория есть для convex SGD, ZO LLM — нет) → **D-MeZO-N v2 wrapper**
+- DP + ZO (no mention) → **T4 dual-use clip → (ε, δ)-DP**
+- Adaptive clipping / drift-reset → **B1+B5 combo**
+
+### Другие релевантные работы из профиля Beznosikov
+
+(Selected from h-index 20, 1604 citations profile; full list — Google Scholar `hVVJR-sAAAAJ`)
+
+| Работа | Год | Релевантность к D-MeZO |
+|---|---|---|
+| **[Beznosikov, Richtárik, Diskin, Ryabinin, Gasnikov 2022]** "Distributed methods with compressed communication for solving VI" (NeurIPS 2022) arXiv:2207.10792 | 2022 | VI-аналог нашей "16 байт/раунд" — compression-aware distributed |
+| **[Sadiev, Borodich, Beznosikov, Dvinskikh, Chezhegov 2022]** "Decentralized personalized FL: Lower bounds + optimal algorithm" EURO J Comp Opt | 2022 | **Lower bounds для decentralized FL** — теоретическая граница против которой можно бенчмаркать наш T1 |
+| **[Sadiev, Beznosikov, Dvurechensky, Gasnikov 2021]** "Zeroth-order algorithms for smooth saddle-point problems" | 2021 | ZO + SPP extension; potential future work |
+| **[Beznosikov, Scutari, Rogozin, Gasnikov 2021]** "Distributed saddle-point problems under data similarity" (NeurIPS 2021) | 2021 | Non-IID treatment в distributed setting — те же idea что наш §3.3 |
+| **[Beznosikov, Horváth, Richtárik, Safaryan 2023]** "On biased compression for distributed learning" (JMLR) | 2023 | Biased compression theory — связь с clip-bias B1 |
+| **[Beznosikov, Dvurechenskii, Koloskova, Samokhin, Stich 2022]** "Decentralized local stochastic extra-gradient for VI" (NeurIPS 2022) | 2022 | Decentralized + local steps — same pattern что наш `ClientState.local_steps` |
+| **[Beznosikov, Samsonov, Sheshukova, Gasnikov, Naumov 2023]** "First order methods with markovian noise" (NeurIPS 2023) | 2023 | Markovian noise analysis — relevant для async P2P extensions |
+
+### Где это меняет наше positioning
+
+**В paper §2 (Related Work)** — добавить параграф:
+> "Foundational theory two-point l₂-smoothing ZO была систематизирована Gasnikov-Beznosikov school (arXiv:2211.13566). Their bounds T1-T2 (bias $\gamma M_2$, variance $O(d M^2)$) underly наш convergence analysis в T1-T4. Наш вклад — extension этой theory в (a) PL setting, (b) heavy-ball momentum, (c) decentralized federated LLM-scale, (d) (ε,δ)-DP."
+
+**На защите Q&A** — готовый ответ если спросят про Russian school:
+> "Survey 2023 года (Gasnikov-Beznosikov et al., Encyclopedia of Optimization) — наш foundational reference для l₂-smoothing bounds. Их работа покрывает convex / accelerated; мы выходим в PL + momentum + federated + DP, ни одного из которых survey не охватывает. Beznosikov's decentralized SGD work (NeurIPS 2022, 2023) — параллельный благоприятный контекст; их methodological tradition является основой нашей framework."
 
 ---
 
@@ -240,6 +291,16 @@ Workshop audience ценит:
 - **[Spall 1997]** Accelerated second-order stochastic optimization using only function measurements. In Proc. 36th IEEE Conf. Decision and Control.
 - **[Bhatnagar et al. 2003]** Two-timescale algorithms for simulation optimization of hidden Markov models. IIE Transactions 35(4):385–397.
 - **[DP-ZOSO]** Bu et al. (2024). Stage-wise DP zeroth-order optimization. arXiv:2402.07818
+
+### Russian school of ZO / decentralized optimization (Gasnikov–Beznosikov)
+- **[Gasnikov-Beznosikov survey]** Gasnikov, Dvinskikh, Dvurechensky, Gorbunov, Beznosikov, Lobanov (2023). Randomized gradient-free methods in convex optimization. *Encyclopedia of Optimization* (Springer). arXiv:2211.13566v3 (Feb 2024).
+- **[Beznosikov-Richtárik 2022]** Beznosikov, Richtárik, Diskin, Ryabinin, Gasnikov (2022). Distributed methods with compressed communication for solving variational inequalities, with theoretical guarantees. NeurIPS 2022. arXiv:2207.10792.
+- **[Sadiev-Borodich-Beznosikov 2022]** Sadiev, Borodich, Beznosikov, Dvinskikh, Chezhegov et al. (2022). Decentralized personalized federated learning: Lower bounds and optimal algorithm for all personalization modes. EURO Journal on Computational Optimization 10, 100041.
+- **[Sadiev-Beznosikov 2021]** Sadiev, Beznosikov, Dvurechensky, Gasnikov (2021). Zeroth-order algorithms for smooth saddle-point problems. ICOMTOR.
+- **[Beznosikov-Scutari 2021]** Beznosikov, Scutari, Rogozin, Gasnikov (2021). Distributed saddle-point problems under data similarity. NeurIPS 2021.
+- **[Beznosikov-Horváth 2023]** Beznosikov, Horváth, Richtárik, Safaryan (2023). On biased compression for distributed learning. JMLR 24(276):1–50.
+- **[Beznosikov-Koloskova 2022]** Beznosikov, Dvurechenskii, Koloskova, Samokhin, Stich et al. (2022). Decentralized local stochastic extra-gradient for variational inequalities. NeurIPS 2022.
+- **[Beznosikov-Samsonov 2023]** Beznosikov, Samsonov, Sheshukova, Gasnikov, Naumov et al. (2023). First order methods with markovian noise: from acceleration to variational inequalities. NeurIPS 2023.
 
 ### MeZO family and successors
 - **[MeZO]** Malladi et al. (2023). Fine-Tuning Language Models with Just Forward Passes. NeurIPS 2023. arXiv:2305.17333
