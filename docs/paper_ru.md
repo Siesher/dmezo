@@ -142,7 +142,7 @@ $$\mathbb{E}[L(\bar\theta_T) - L^{\star}] \leq \tilde{O}\!\left( \sqrt{\frac{L \
 
 *Три слагаемых: стохастическое linear-speedup в $n$ клиентов ($1/\sqrt{nT}$), consensus penalty (зануляется для complete graph где $\rho = 0$), ZO-bias старшего порядка по $\epsilon$.*
 
-**Эскиз доказательства.** Полное доказательство — `docs/theory_nesterov_mezo.md`. Структура:
+**Эскиз доказательства.** Полное доказательство — `docs/theory_rigorous.md` Theorem 1. Структура:
 
 *Шаг 1 (descent inequality).* По $L$-гладкости $\bar L(\bar\theta_{t+1}) \leq \bar L(\bar\theta_t) - \eta \langle \nabla \bar L, \bar v_{t+1} \rangle + \frac{\eta^2 L}{2}\|\bar v_{t+1}\|^2$, где $\bar v$ — consensus-усреднённая velocity. По Леммам 1+2 ограничиваем $\mathbb{E}\|\bar v_{t+1}\|^2 \leq C^2 r(H) + (1-\beta_t)^{-2} G^2$.
 
@@ -333,7 +333,7 @@ Headline — convergent task multi-seed validated **3-seed paired direction cons
 - **Конфиги**: `configs/*.yaml` — один на эксперимент, Hydra-loadable.
 - **Notebooks**: `notebooks/run_finals.ipynb` — single-click воспроизведение полной multi-seed сетки + R1d + centralized baseline на Colab Pro+.
 - **MLflow run IDs** (Drive-mirrored) для каждой числовой величины в Таблицах 1–2 и Рисунках 1–4.
-- **Технотчёт** `docs/04-theory.md` с полными доказательствами Теорем 1 и 2 и roadmap к Теореме 3 (PL + момент).
+- **Технотчёт** `docs/theory_rigorous.md` с полными доказательствами Теорем 1–4.
 
 # 6. Обсуждение
 

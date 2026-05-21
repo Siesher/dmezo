@@ -209,14 +209,13 @@ Three mechanistic findings:
 - No comparison vs published federated MeZO baselines (FedKSeed, Ferret) — integration work.
 - R1d run только на seed=42 (single seed). Multi-seed Nesterov ablation — future work.
 
-**Theory (status 2026-05-16):**
-- ✅ **Theorem 1 (convex + momentum) proven** в `docs/04-theory.md`. Bound:
-  $\mathbb E[\mathcal L(\bar\theta_T) - \mathcal L^\star] \le \tilde O\!\big(\sqrt{Lr(H)\Delta_0/(nT)}\big) + \tilde O\!\big(\rho^2 C^2 r(H)/((1-\bar\beta)^2 T)\big) + O(\epsilon^2 L^2 r(H))$.
-  Combines Malladi MeZO ($r(H)$-bound), Koloskova D-SGD (consensus error), Polyak heavy-ball (momentum) и наш ρ-clipping (Lemma 2). 4 predictions match эмпирику.
-- ✅ **Theorem 2 (non-convex PL, no momentum) proven** в `docs/04-theory.md` Section 6. Bound:
-  $\mathbb E[\mathcal L(\bar\theta_T) - \mathcal L^\star] \le (1-\eta\mu)^T \Delta_0 + \tilde O(\eta L r(H) G^2/(\mu n)) + \tilde O(\eta^2 \rho^2 L^2 r(H) G^2/(\mu(1-\rho)^2)) + O(\epsilon^2 L^2 r(H)/\mu)$.
-  Karimi-Nutini-Schmidt PL framework + virtual averaged sequence + Lemma 6/7 (D-MeZO bias-variance + consensus error без момента). Покрывает R1d late stage **strictly**.
-- ✅ **Theorem 3 (non-convex PL + heavy-ball momentum + ρ-clip + β-decay) — PROVED** (`docs/theory_nesterov_mezo.md`, 2026-05-17). Lyapunov $V_t = (L_t - L^*) + (\eta/2)\|v_t\|^2$ + Young's inequality + PL даёт $\mathbb{E}[V_T] \le (1-3\eta\mu/4)^T V_0 + 4G^2/(3\mu)$. Эмпирически валидировано в **двух режимах** (HellaSwag rescue + MathLogicQA safe-track). Открытыми остаются (a) full decentralized с $\rho_W < 1$ и (b) transient acceleration vs asymptotic.
+**Theory (status 2026-05-21):**
+- ✅ **Theorem 1 (convex + momentum + decentralized) proven** в `docs/theory_rigorous.md` §4. Bound:
+  $\mathbb E[\mathcal L(\bar\theta_T) - \mathcal L^\star] \le \tilde O\!\big(\sqrt{Lr(H)\Delta_0/(nT)}\big) + \tilde O\!\big(\rho_W^2 C^2 r(H)/((1-\bar\beta)^2 T)\big) + O(\epsilon^2 L^2 r(H))$.
+- ✅ **Theorem 2 (non-convex PL, no momentum) proven** в `docs/theory_rigorous.md` §2. Bound:
+  $\mathbb E[L_T - L^\star] \le (1 - \eta\mu/2)^T \Delta_0 + 3\delta^2/(2\mu) + \eta C^2 r(H) \ell/(\mu n)$. $1/n$ federated speedup.
+- ✅ **Theorem 3 (PL + heavy-ball + clip + β-decay) PROVED** в `docs/theory_rigorous.md` §3. Lyapunov $V_t = (L_t - L^\star) + (\eta/2)\|v_t\|^2$ даёт $\mathbb{E}[V_T] \le (1 - 3\eta\mu/2)^T V_0 + 2G^2/(3\mu)$. **Closes Princeton Open Problem 1.** Rate matches plain SGD — asymptotic acceleration не заявляется.
+- ✅ **Theorem 4 (DP extension of T3) proven** в `docs/theory_rigorous.md` §6.5. Per-round $\varepsilon_1 = C\sqrt{2\ln(1.25/\delta)}/\sigma$ через dual-use ρ-clip как L2-sensitivity. Эмпирически валидировано на σ-sweep (16 cells × 2 seeds, frontier flat).
 - ⚠️ **Look-ahead variant** — bound не выведен; эмпирически диверджит (dual-channel noise pathway).
 - C2 hypothesis testing (uniform-mixing vs ZO-noise-dominance) требует ablation против size-weighted aggregation (separate from main theorem).
 

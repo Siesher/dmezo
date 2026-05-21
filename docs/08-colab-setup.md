@@ -86,7 +86,7 @@ Bootstrap notebook cell 4 уже настроен под этот вариант
 
 1. Скачать `mlruns/` обратно на локалку через Drive (если использовалась опция B) или просто оставить на Drive.
 2. Локально открыть UI: `uv run --no-sync mlflow ui --backend-store-uri file:./mlruns` → сравнить локальные runs и Colab run.
-3. Перейти к Day 2 (см. `docs/05-week1-plan.md`).
+3. Перейти к multi-seed federated runs (см. `scripts/local_test_improvements.py` для §22 paper-scale reproduce; `docs/multiseed_analysis.md` для analysis template).
 
 ## Compute estimate
 

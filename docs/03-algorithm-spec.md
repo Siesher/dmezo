@@ -107,7 +107,7 @@ $$\mathbb E\left\|\nabla \mathcal L(\bar\theta_T)\right\|^2 \le \tilde O\!\left(
 - $1/n$ — linear speedup от distributed.
 - $\rho^2/(1-\beta)^2$ — penalty за плохую топологию, ослабляется моментом.
 
-**Формальное доказательство — в работе.** См. `04-theory-template.md`.
+**Формальные доказательства** — `docs/theory_rigorous.md` (T1–T4).
 
 ## Hyperparameter ranges (стартовые точки)
 
