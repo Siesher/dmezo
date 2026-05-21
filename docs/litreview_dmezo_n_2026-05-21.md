@@ -8,6 +8,48 @@ ZO для LLM fine-tuning оформилась вокруг MeZO (NeurIPS 2023) 
 
 ---
 
+## Section A0 — SPSA Family (foundational ancestor of MeZO)
+
+**SPSA (Simultaneous Perturbation Stochastic Approximation)** — Spall 1992 — прямой предок MeZO и всех subsequent ZO methods для LLM. Технически MeZO — это **SPSA + in-place perturbation + Gaussian z + scalar-only state**.
+
+| Работа | Год | Ключевая идея | Связь с D-MeZO-N v2 |
+|---|---|---|---|
+| **Spall 1992** (IEEE TAC 37:332) | 1992 | Original SPSA: $\hat g = ((L(\theta+\varepsilon\Delta) - L(\theta-\varepsilon\Delta))/(2\varepsilon)) \cdot \Delta^{-1}$, $\Delta$ — Bernoulli ±1 vector | **Прямой предок MeZO**. Two-point central diff с perturbation |
+| **Sadegh-Spall 1998** (J Stat Plan Inference) | 1998 | Convergence rate для SPSA: $O(1/\sqrt{T})$ | Foundational rate analysis |
+| **Spall 2000** "**2-SPSA**" (IEEE TAC 45:1839) | 2000 | Second-order SPSA: Hessian estimation через 4 forward passes | Analog нашего Richardson 4-point ablation (§6.7 supplement, fail на large ε) |
+| **Spall 1997** (Auto Control Theory & Apps) | 1997 | Adaptive SPSA: gain sequence $\eta_t = a/(t+A)^\alpha$ ($\alpha \approx 0.602$) | Соответствует harmonic-decay schedule (`MeZOConfig.lr_schedule="harmonic"` в нашем коде) |
+| **Bhatnagar et al. 2003** | 2003 | Generalized SPSA с smoother perturbations | Path к Gaussian-MeZO |
+
+### Где MeZO innovates относительно classical SPSA
+
+| Aspect | SPSA (Spall 1992) | MeZO (Princeton 2023) | Innovation rationale |
+|---|---|---|---|
+| Perturbation $z$ | Bernoulli ±1 | $\mathcal{N}(0, I)$ Gaussian | Gaussian enables $r(H)$-trick (Malladi Lemma 1b'); Bernoulli не работает |
+| Storage of $z$ | Explicit vector $O(d)$ | **In-place seed-reconstruction $O(1)$** | **Главная LLM-scale memory innovation** |
+| Update form | $\theta \leftarrow \theta - \eta \hat g$ (vector) | $\theta \leftarrow \theta - \eta \hat\rho z$ (scalar × regenerated z) | Saves storing gradient AND z |
+| Loss precision | Unspecified | bf16 model + fp32 $\hat\rho$ accumulation | Catastrophic cancellation в $L_+ - L_-$ |
+
+### Где D-MeZO-N innovates относительно SPSA family (4 axes)
+
+1. **Federated SPSA для LLM не существовало.** FedKSeed = SPSA + shared K-seed pool (star topology). D-MeZO-N = SPSA + per-client RNG + gossip mixing. Никто из SPSA literature не делал decentralized SPSA для LLM.
+
+2. **Heavy-ball momentum для SPSA under PL.** SPSA classically uses adaptive gain (Spall 1997 harmonic decay), не momentum. Convergence proof momentum для SPSA — у нас Theorem 3.
+
+3. **Adaptive ρ-clip для SPSA stability.** SPSA не имеет stability mechanism для outliers $|\hat\rho|$. Это B1 contribution.
+
+4. **DP-SPSA для federated.** DP-ZO (arXiv:2401.04343) — SPSA-style centralized DP без явного "SPSA" naming. DP-SPSA в federated сценарии — наш T4 + dual-use ρ-clip.
+
+### Открытая нiche: DP-SPSA literature search (2026-05-21)
+
+Targeted search для "DP-SPSA" / "private SPSA" / "differentially private zeroth-order":
+- **Ни одной работы** не нашлось под именем "DP-SPSA". Связанные работы:
+  - **DP-ZO** (arXiv:2401.04343) — centralized, не SPSA naming
+  - **DP-ZOSO** (arXiv:2402.07818) — centralized, stagewise scheduler, не SPSA-specific
+  - **Distributed DP optimization** (arXiv:2310.11892, arXiv:1512.00369) — control/convex, не LLM, не federated
+- **Conclusion:** decentralized federated DP-ZO для LLM — **open niche**. D-MeZO-N v2 + Theorem 4 occupy эту nichu.
+
+---
+
 ## Section A — ZO for LLM Fine-tuning
 
 | Работа | Год | Ключевая идея | Momentum? | DP? | Federated? |
@@ -123,7 +165,9 @@ ZO для LLM fine-tuning оформилась вокруг MeZO (NeurIPS 2023) 
 
 6. **MeZO на hybrid linear-attention + full-attention арх (Qwen3.5).** Princeton paper тестировал только full-attention transformers. Мы первые на hybrid linear-attention.
 
-7. **Formal $(\varepsilon=10, \delta=10^{-3})$-DP в decentralized federated ZO** с +6.2% utility cost. Ближайший конкурент DPZero — centralized only.
+7. **Formal $(\varepsilon=10, \delta=10^{-3})$-DP в decentralized federated ZO** с +6.2% utility cost. Ближайший конкурент DPZero (arXiv:2401.04343) — centralized only. DPZV (arXiv:2502.20565) — vertical FL, different task. **Targeted search confirmed:** ни одной работы под "DP-SPSA" name — open niche.
+
+8. **Connection to classical SPSA (Spall 1992).** D-MeZO-N v2 — это технически **SPSA с 4 innovations поверх MeZO**: heavy-ball scalar momentum (vs SPSA's adaptive gain Spall 1997), adaptive clip (vs no SPSA stability mechanism), federated wrapper (no SPSA-LLM federated work), dual-use clip for DP (DP-SPSA не existed под этим именем). Эта историческая родословная сильна для positioning — мы строим на well-established stochastic approximation theory (34 года).
 
 ---
 
@@ -187,8 +231,17 @@ Workshop audience ценит:
 
 ---
 
-## References (verified arXiv IDs)
+## References (verified arXiv IDs / DOIs)
 
+### SPSA family (foundational)
+- **[Spall 1992]** A Stochastic Approximation Technique for Generating Maximum Likelihood Parameter Estimates. IEEE Transactions on Automatic Control 37(3):332–341.
+- **[Sadegh-Spall 1998]** Optimal random perturbations for stochastic approximation using a simultaneous perturbation gradient approximation. J Stat Planning & Inference.
+- **[Spall 2000]** Adaptive stochastic approximation by the simultaneous perturbation method (2-SPSA). IEEE TAC 45(10):1839–1853.
+- **[Spall 1997]** Accelerated second-order stochastic optimization using only function measurements. In Proc. 36th IEEE Conf. Decision and Control.
+- **[Bhatnagar et al. 2003]** Two-timescale algorithms for simulation optimization of hidden Markov models. IIE Transactions 35(4):385–397.
+- **[DP-ZOSO]** Bu et al. (2024). Stage-wise DP zeroth-order optimization. arXiv:2402.07818
+
+### MeZO family and successors
 - **[MeZO]** Malladi et al. (2023). Fine-Tuning Language Models with Just Forward Passes. NeurIPS 2023. arXiv:2305.17333
 - **[MeZO-SVRG]** Variance-Reduced ZO Methods for Fine-Tuning Language Models. arXiv:2404.08080
 - **[Sparse MeZO]** Sparse MeZO. arXiv:2402.15751
