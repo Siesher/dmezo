@@ -78,3 +78,7 @@ head-to-head/
 /vit_log*.csv
 /vit_results.png
 "/\320\221\320\265\320\267 \320\275\320\260\320\267\320\262\320\260\320\275\320\270\321\217.png"
+
+# Preprint build intermediates
+docs/_paper_en_build.html
+docs/_preprint_style.css

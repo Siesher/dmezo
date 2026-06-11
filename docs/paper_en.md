@@ -1,5 +1,5 @@
 ---
-title: "D-MeZO-N: Decentralized Federated MeZO with Nesterov Acceleration"
+title: "D-MeZO-N: Decentralized Federated MeZO with Nesterov-Style Stabilization"
 author: "Maxim Sukhatsky — Bauman MSTU (Kaluga branch) — rmnfn1992@outlook.com — github.com/Siesher/dmezo"
 date: "Spring 2026"
 lang: en
@@ -319,7 +319,9 @@ The experiment was run with `scripts/head_to_head_fedkseed.py` on the same Colab
 - $\Delta_{\text{acc}}$ (D-MeZO-N v2 vs FedKSeed): **+0.0533**, CI [−0.0200, +0.1400] — **not significant**.
 - $\Delta_{\text{acc}}$ (FedKSeed vs vanilla): **−0.0367**, CI [−0.1000, +0.0300] — **not significant**.
 
-All accuracy comparisons are not significant at $n=3$ (the 100-example eval pool gives SE ≈ 4.5pp); the robust signal is on loss. (Figure 20: side-by-side loss + accuracy trajectories with shaded ±1σ bands across seeds — `head-to-head/fig20_head_to_head_fedkseed_Qwen_Qwen3p5-4B-Base_mathlogicqa.png`.)
+All accuracy comparisons are not significant at $n=3$ (the 100-example eval pool gives SE ≈ 4.5pp); the robust signal is on loss.
+
+![Figure 20. Head-to-head comparison of D-MeZO-N v2, vanilla MeZO and FedKSeed on Qwen3.5-4B-Base / MathLogicQA (3 seeds, 500 rounds, 4 clients IID): side-by-side loss and accuracy trajectories with shaded ±1σ bands across seeds. D-MeZO-N v2 separates from both baselines on loss in all three seeds.](figures/fig20_head_to_head_fedkseed_Qwen_Qwen3p5-4B-Base_mathlogicqa.png){width=16cm}
 
 ### 6.5.3 Interpretation
 
@@ -473,7 +475,7 @@ The DP $\sigma$-sweep was executed on Colab Pro+ Blackwell on 2026-05-20 (16 cel
 | **+ DP, $\sigma=19.0$** | **19.0** | **★ 10** | **1.8967 ± 0.093** | **0.265 ± 0.035** | **+6.2%** |
 | + DP, $\sigma=50.0$ | 50.0 | 4 | 1.9116 ± 0.036 | 0.275 ± 0.045 | +7.1% |
 
-![Figure 23. DP-MeZO privacy/utility frontier on Qwen3.5-0.8B / MathLogicQA / 200 rounds / 4 clients IID / 2 seeds. (a) Final eval loss as a function of privacy budget $\varepsilon$ (log scale; stronger privacy to the right). Dashed lines show no-DP baselines (vanilla, blue; D-MeZO-N v1, orange). (b) Final accuracy with $\pm 1$ std error bars across seeds. The $\varepsilon = 10$ threshold (red vertical line) is the "publishable privacy" boundary. The frontier is **statistically flat across all $\sigma$ values** — utility loss vs no-DP D-MeZO-N is essentially constant at 5.5–7.1%, regardless of $\varepsilon$.](figures/fig_sweep_dp_sigma_frontier_Qwen_Qwen3p5-0p8B_mathlogicqa.png){width=16cm}
+The full privacy/utility frontier (final eval loss and accuracy as functions of the per-round privacy budget $\varepsilon$ on a log scale, with no-DP baselines and $\pm 1$ std error bars across seeds) is visualized by `scripts/sweep_dp_sigma.py`; the table above contains the complete underlying data. The frontier is **statistically flat across all $\sigma$ values** — utility loss vs no-DP D-MeZO-N is essentially constant at 5.5–7.1%, regardless of $\varepsilon$.
 
 ### 6.7.3 Main finding: DP is essentially free for D-MeZO-N at this scale
 
