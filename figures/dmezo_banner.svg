@@ -196,13 +196,13 @@
 
     <!-- Theorem pill -->
     <g transform="translate(0, 258)">
-      <rect x="-148" y="-13" width="296" height="26" rx="13"
+      <rect x="-158" y="-13" width="316" height="26" rx="13"
             fill="#6EE7B7" fill-opacity="0.10"
             stroke="#A7F3D0" stroke-opacity="0.55" stroke-width="0.8"/>
       <text x="0" y="4" text-anchor="middle"
             font-family="Inter, system-ui, sans-serif" font-size="10.5"
             fill="#A7F3D0" letter-spacing="2.5">
-        T3 · CLOSES PRINCETON OPEN PROBLEM 1
+        T3 · ZO HEAVY-BALL STABILITY GUARANTEE
       </text>
     </g>
   </g>

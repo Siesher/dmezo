@@ -9,7 +9,7 @@
 - §3 Theorem 3 — PL + heavy-ball + β-decay (центральная)
 - §4 Theorem 1 — convex + momentum + decentralized (federated)
 - §5 Предсказания vs эмпирика (честный matching)
-- §6 Что не доказано
+- §6 Что не доказано (открытые вопросы)
 
 **Этот документ заменяет** более ранние `docs/04-theory.md` и `docs/theory_nesterov_mezo.md`, объединяя их с устранением inconsistencies в обозначениях и closure of gaps в доказательствах.
 
@@ -243,6 +243,14 @@ $$V_t := (L_t - L^\star) + \frac{\eta}{2}\|v_t\|^2.$$
 Под (A1)+(A2/PL)+(A4) и unbiasedness ($\mathbb{E}\tilde g = \nabla L$), при $\eta \le (1-\beta_0^2)/(8\ell)$:
 $$\boxed{\quad \mathbb{E}[V_T] \le \bigl(1 - \tfrac{3\eta\mu}{2}\bigr)^T V_0 + \frac{2G^2}{3\mu} \quad}$$
 
+### Замечание по скорости сходимости T3 (сравнение с SGD и Karimi et al. 2016)
+
+Скорость сжатия $(1 - 3\eta\mu/2)^T$ в T3 формально **хуже** скорости plain SGD под PL $(1 - 2\eta\mu)^T$ (Karimi, Nutini, Schmidt 2016, Theorem 2), поскольку для разумных $\eta$ выполнено $3\eta\mu/2 < 2\eta\mu$. Это согласуется с общим результатом Bottou, Curtis, Nocedal 2018 (Theorem 5.1): при ненулевой дисперсии стохастических градиентов heavy-ball momentum не даёт асимптотического ускорения.
+
+Таким образом, **T3 не является теоремой ускорения**. Вклад T3 в том, что momentum в высокодисперсном ZO-режиме можно сделать **безопасным** (без дивергенции) при адаптивном клиппинге и $\beta$-decay — и это, насколько нам известно, первая такая гарантия в ZO-LLM постановке. Эмпирическое 3× ускорение в transient-фазе (Day 8 R1b) есть конечное-временной феномен, не охваченный данным asymptotic анализом; он остаётся открытым вопросом (см. §6 Open Question).
+
+Если $\mu_{\text{effective}}$ достаточно велика (т.е. $3\eta\mu/2$ близко к $2\eta\mu$), gap несущественен на практике. Правильная интерпретация коробочной оценки: «при данном $\eta$, momentum-итерация с clip+β-decay сходится к noise floor $2G^2/(3\mu)$ без взрыва, что без этих средств защиты невозможно» (ср. расходимость при $\beta=0.9$ без clip, R140).
+
 ### Доказательство (9 шагов)
 
 **(1) L-smoothness:** $L_{t+1} \le L_t - \eta\langle\nabla L_t, v_{t+1}\rangle + \frac{\eta^2\ell}{2}\|v_{t+1}\|^2$.
@@ -256,7 +264,9 @@ $$\boxed{\quad \mathbb{E}[V_T] \le \bigl(1 - \tfrac{3\eta\mu}{2}\bigr)^T V_0 + \
 **(4) Кинетический шифт:**
 $$\frac{\eta}{2}\mathbb{E}[\|v_{t+1}\|^2 - \|v_t\|^2 | \mathcal{F}_t] \le -\frac{\eta(1-\beta_t^2)}{2}\|v_t\|^2 + \eta\beta_t\langle v_t, \nabla L_t\rangle + \frac{\eta G^2}{2}.$$
 
-**(5) Sum (Steps 3+4) — ⚡ cross-term cancellation.** Cross-terms $\pm \eta\beta_t\langle\nabla L, v\rangle$ ровно сокращаются. **Это магия выбора $V_t$:**
+**(5) Sum (Steps 3+4) — ⚡ cross-term cancellation.** Сложим L-smoothness descent (шаг 3) и кинетический сдвиг (шаг 4). Cross-terms с $\beta_t\langle\nabla L_t, v_t\rangle$: из descent L-smoothness приходит $-\eta\beta_t\langle\nabla L_t, v_t\rangle$ (с минусом из $-\eta\langle\nabla L, v_{t+1}\rangle = -\eta\beta_t\langle\nabla L, v_t\rangle - \eta\|\nabla L\|^2$), а из кинетического шага приходит $+\eta\beta_t\langle v_t, \nabla L_t\rangle$ (с плюсом). Точное взаимное уничтожение:
+$$-\eta\beta_t\langle\nabla L_t, v_t\rangle + \eta\beta_t\langle v_t, \nabla L_t\rangle = 0.$$
+Выбор множителя $\eta/2$ при $\|v_t\|^2$ в $V_t$ подобран именно для этого: при любом другом коэффициенте $\alpha \ne \eta/2$ остаток $(1 - 2\alpha/\eta)\eta\beta_t\langle\nabla L, v\rangle \ne 0$. После сокращения:
 $$\mathbb{E}[V_{t+1} - V_t|\mathcal{F}_t] \le -\eta\|\nabla L_t\|^2 - \frac{\eta(1-\beta_t^2)}{2}\|v_t\|^2 + \frac{\eta^2\ell}{2}\mathbb{E}\|v_{t+1}\|^2 + \frac{\eta G^2}{2}.$$
 
 **(6) Bound $\frac{\eta^2\ell}{2}\mathbb{E}\|v_{t+1}\|^2$:** Young's на $\langle v_t, \nabla L_t\rangle$, simplify к $\le \eta^2\ell\|v_t\|^2 + \frac{\eta^2\ell}{2}\|\nabla L_t\|^2 + \frac{\eta^2\ell G^2}{2}$.
@@ -278,6 +288,19 @@ $$\mathbb{E}[V_{t+1}|\mathcal{F}_t] \le (1 - 3\eta\mu/2) V_t + \eta G^2.$$
 
 **Замечание:** $\eta$ **сокращается** в noise floor. Уменьшение $\eta$ → медленнее convergence, **тот же floor**. Чтобы уменьшить floor → уменьшить $G^2$ (через clip или multi-direction). $\square$
 
+### Замечание — T3 при β=0 не сводится к T2 (несоответствие констант)
+
+При формальной подстановке $\beta_t \equiv 0$ (нет momentum) в доказательство T3:
+- $v_{t+1} = \tilde g_t$ (buffer = текущий градиент-оценщик)
+- $V_t = (L_t - L^\star) + \frac{\eta}{2}\|\tilde g_{t-1}\|^2$ — Lyapunov содержит «лишнюю» кинетику
+
+Полученный rate сжатия из T3 при $\beta_0 = 0$: $(1 - 3\eta\mu/2)^T$.
+Rate T2 (прямой анализ без буфера): $(1 - \eta\mu/2)^T$.
+
+Эти величины **отличаются**: $3\eta\mu/2 \ne \eta\mu/2$. Расхождение происходит потому, что Lyapunov-функция T3 несёт дополнительный кинетический член $(\eta/2)\|v\|^2$, который при $\beta=0$ не исчезает (он равен $(\eta/2)\|\tilde g_t\|^2$). Это создаёт разные пути к PL-неравенству в двух доказательствах, давая разные константы.
+
+**Вывод:** T3 и T2 — независимые результаты с разными Lyapunov-функциями. T3 **не является обобщением** T2: при $\beta \to 0$ T3 доказывает чуть более слабую bound $(1-3\eta\mu/2)^T$ через более тяжёлый аппарат, тогда как T2 доказывает $(1-\eta\mu/2)^T$ напрямую. Это типичная цена generalisation через Lyapunov против direct analysis.
+
 ### Corollary 7.1 — почему β-decay лучше const β
 
 $V_T = (L_T - L^\star) + \frac{\eta}{2}\|v_T\|^2$ ⇒ $L_T - L^\star = V_T - \frac{\eta}{2}\|v_T\|^2$.
@@ -290,9 +313,9 @@ $V_T = (L_T - L^\star) + \frac{\eta}{2}\|v_T\|^2$ ⇒ $L_T - L^\star = V_T - \fr
 
 ### Что Theorem 3 НЕ доказывает
 
-**1. Acceleration не доказана.** Rate $(1 - 3\eta\mu/2)^T$ — **тот же** что для plain SGD. Эмпирическое 3× speedup (Day 8 R1b до R300) **не объяснено**. Это transient phenomenon — требует более тонкого analysis (estimate sequence / Yang-Zhao-Cheng framework). **Открытая проблема.**
+**1. Acceleration не доказана.** Rate $(1 - 3\eta\mu/2)^T$ формально **хуже**, чем для plain SGD-под-PL $(1-2\eta\mu)^T$ (Karimi et al. 2016). Эмпирическое 3× speedup (Day 8 R1b до R300) **не объяснено** настоящей теоремой. Это transient phenomenon — требует более тонкого analysis (estimate sequence / Yang-Zhao-Cheng framework). **Открытый вопрос (см. §6).**
 
-**Альтернативная честная формулировка:** "D-MeZO-N имеет **тот же асимптотический rate**, но **меньшую variance в transient phase** через momentum-smoothing." Согласуется с Bottou-Curtis-Nocedal 2018 Theorem 5.1.
+**Теорема 3 устанавливает устойчивость** zeroth-order оптимизации с heavy-ball моментом при адаптивном клиппинге и β-decay в PL-режиме — насколько нам известно, первая такая гарантия в ZO-LLM постановке. Скорость сжатия $(1-3\eta\mu/2)$ не превосходит скорость plain SGD под PL $(1-2\eta\mu)$ (Karimi et al. 2016), что согласуется с Bottou–Curtis–Nocedal 2018 (Thm 5.1): heavy-ball не даёт асимптотического ускорения при стохастических градиентах. Наш вклад — момент можно сделать безопасным (без расхождения) в высокодисперсном ZO-режиме, а не быстрее.
 
 **2. Look-ahead Nesterov vs heavy-ball.** Proof только для heavy-ball $v_{t+1} = \beta v_t + \tilde g_t$ при оценке в текущей точке. Look-ahead имеет dual-channel noise (probe location + update direction) — эмпирически дивергит R20.
 
@@ -373,31 +396,31 @@ $$\frac{D_0}{2\eta T} + \frac{\eta C^2 r(H)\ell}{2n} \ge \sqrt{\frac{D_0 \cdot C
 
 ---
 
-## §6. Что не доказано (открытые проблемы)
+## §6. Что не доказано (открытые вопросы)
 
-### Open Problem 1 — Acceleration под PL
+### Открытый вопрос 1 — Acceleration под PL (transient phase analysis)
 
-Theorems 2, 3 дают **тот же rate** $(1-\eta\mu)^T$ независимо от наличия momentum. Эмпирическое 3× speedup (Day 8) → **transient acceleration**, не asymptotic.
+Theorems 2, 3 дают **тот же asymptotic rate** $(1-O(\eta\mu))^T$ независимо от наличия momentum; T3 формально даёт rate $(1-3\eta\mu/2)^T$, что **хуже** T2 $(1-\eta\mu/2)^T$ на одну и ту же константу из-за разных Lyapunov-конструкций (см. §3, Замечание). Эмпирическое 3× speedup (Day 8 R1b R100→R300) → **transient acceleration**, не asymptotic — Bottou–Curtis–Nocedal 2018 (Thm 5.1) это предсказывает.
 
-**Что нужно:** finite-time analysis с estimate sequence (Nesterov 2018 framework). Yang-Zhao-Cheng 2016 adaptive momentum analysis — close, но не для ZO.
+**Что нужно:** finite-time analysis с estimate sequence (Nesterov 2018 framework) или variance-reduction proxy. Yang-Zhao-Cheng 2016 adaptive momentum analysis — наиболее близок, но не для ZO и не с clipping.
 
-**Сложность:** 4-мерная композиция (non-convex × PL × momentum × ZO × clipping). Ни одной paper не делал.
+**Сложность:** 5-мерная композиция (non-convex × PL × momentum × ZO × clipping). Насколько известно авторам, ни одна paper не делала это одновременно.
 
-### Open Problem 2 — Full decentralized Theorem 3
+### Открытый вопрос 2 — Full decentralized Theorem 3
 
 T3 — centralized. Для full decentralized нужен Lyapunov $\Phi_t = (L(\bar\theta_t) - L^\star) + (\eta/2)\|\bar v_t\|^2 + \Pi_t \cdot c$ для какой-то константы $c$. Cross-terms в $\Pi_t$-эволюции под momentum — нетривиальны.
 
-### Open Problem 3 — Look-ahead Nesterov
+### Открытый вопрос 3 — Look-ahead Nesterov
 
 True look-ahead: $\tilde g_t = \mathrm{MeZO}(\theta_t + \beta v_t)$. Bias и variance имеют dual-channel структуру (probe и update оба зависят от $v_t$). Эмпирически дивергит R20.
 
 Теоретическое объяснение: variance amplification $\sim 1/(1-\beta)^4$ (квадрат от heavy-ball $1/(1-\beta)^2$). Нет строгого proof, но согласуется с эмпирикой.
 
-### Open Problem 4 — Optimal $\beta$-schedule
+### Открытый вопрос 4 — Optimal $\beta$-schedule
 
 Linear vs cosine vs hold-then-decay — теория даёт только sufficient conditions. Optimal schedule — open.
 
-### Open Problem 5 — Hybrid linear-attention specific bounds
+### Открытый вопрос 5 — Hybrid linear-attention specific bounds
 
 Qwen3.5-4B-Base — hybrid arch. Effective $r(H)$ может отличаться от full-attention. Нет analytical results.
 
@@ -567,20 +590,20 @@ Optimal $\alpha$ minimizes; для нашего setup даёт **более tigh
 | MeZO base | ✅ | ✅ (Malladi 2023) |
 | Distributed | ✅ | ✅ (T1 convex + T2 PL) |
 | Consensus variants | ✅ | ✅ (Lemma 4) |
-| Accelerated schemes (rate) | ⚠️ empirical 3× | ❌ **не доказано** (Open Problem 1) |
-| Nesterov heavy-ball stability | ✅ R1d | ✅ **(T3 в centralized)** |
+| Accelerated schemes (rate) | ⚠️ empirical 3× | ❌ **не доказано** (Открытый вопрос 1) |
+| Nesterov heavy-ball stability | ✅ R1d | ✅ **T3: первая гарантия устойчивости ZO heavy-ball (PL-режим)** |
 | Local LLM copies | ✅ | N/A |
 | MeZO updates | ✅ | ✅ |
 | P2P consensus | ✅ | ✅ (T1) |
 | Consensus mixing | ✅ | ✅ |
 | Nesterov acceleration (asymptotic) | — | ❌ **Bottou-Curtis-Nocedal contradicts** |
 
-**Итог: 8/9 empirically, 7/9 mathematically.** Открытые: acceleration proof (OP1), full decentralized T3 (OP2).
+**Итог: 8/9 empirically, 7/9 mathematically.** Открытые: acceleration proof (Открытый вопрос 1), full decentralized T3 (Открытый вопрос 2).
 
 **Что paper честно может claim:**
 - C1: First MeZO on hybrid linear-attn (✅ verified).
-- C4: **stabilization** (rescue from divergence + safe-tracking), **не acceleration**.
-- C5/C6: T1, T2, T3 proved as stated — **rate same as plain SGD**, momentum даёт лучшую transient phase + lower kinetic energy at convergence.
+- C4: **первая гарантия устойчивости ZO heavy-ball (PL-режим)** — momentum safe (не diverges) с clip+β-decay; **не acceleration**. Rate (1−3ημ/2) не превосходит plain SGD (1−2ημ) (Karimi et al. 2016; BCN 2018 Thm 5.1).
+- C5/C6: T1, T2, T3 proved as stated — **rate same order as plain SGD**, momentum даёт лучшую transient phase + lower kinetic energy at convergence.
 
 **Что paper НЕ должен claim:**
 - "First **accelerated** D-MeZO" — пока асимптотическое acceleration не доказано.
@@ -589,4 +612,4 @@ Optimal $\alpha$ minimizes; для нашего setup даёт **более tigh
 
 ---
 
-*Last updated: 2026-05-20. Документ создан как closure of theoretical gaps идентифицированных в peer-review pass.*
+*Last updated: 2026-06-12. Ревизия: T3 reframing (BCN 2018 + Karimi 2016 rate comparison), cross-term cancellation algebraic display, β=0 constant-factor mismatch remark, "Open Problem" → "Открытый вопрос" throughout, acc demotion per canonical numbers.*

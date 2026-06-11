@@ -38,10 +38,10 @@
 </td>
 <td width="50%">
 
-**Accuracy**
+**Accuracy** *(для прозрачности, не headline)*
 - vanilla MeZO: `0.377`
-- **D-MeZO-N v2: `0.400`**
-- **Δ = +2.3 pp**
+- D-MeZO-N v2: `0.400`
+- +2.3 pp mean — **not statistically significant** (n=3; per-seed {−1, +8, 0} pp; paired t ≈ 0.8, p ≈ 0.5; 100-example eval pool, SE ≈ 4.5 pp)
 - 2 / 3 положительных, 1 ничья
 
 </td>
@@ -60,7 +60,7 @@
 |--|--|--|--|
 | 🧠 | **MeZO** — оценка градиента двумя forward-проходами | Malladi et al., NeurIPS 2023 | Файнтюнинг LLM без backward → пик памяти ≈ inference |
 | 🕸 | **Decentralized SGD** с doubly-stochastic mixing | Koloskova et al. 2020 | Peer-to-peer без центрального сервера |
-| 🚀 | **Heavy-ball + adaptive ρ-clip + drift-reset + β-decay** | Эта работа (Theorem 3) | Замыкает Princeton Open Problem 1 — момент в ZO-режиме |
+| 🚀 | **Heavy-ball + adaptive ρ-clip + drift-reset + β-decay** | Эта работа (Theorem 3) | Первая гарантия устойчивости ZO heavy-ball (PL-режим) — момент не ломает сходимость |
 | 🔐 | **Dual-use ρ-clip как L2-sensitivity** для Gaussian-mechanism DP | Эта работа (Theorem 4) | (ε = 10, δ = 10⁻³)-DP при utility cost ≈ 6 % |
 
 ### Главный алгоритмический differentiator против FedKSeed
@@ -105,7 +105,7 @@ uv run --no-sync pytest tests/ -v
 |--|--|--|--|
 | **T1** | Convex + momentum + decentralized, ρ-clip, mixing W | $\tilde{O}\bigl(\sqrt{Lr(H)\Delta_0/(nT)}\bigr)$ + consensus penalty | ✅ Proved |
 | **T2** | μ-PL + ZO, без момента | Linear $(1-\eta\mu/2)^T$ до noise floor + федеративный $1/n$ speedup | ✅ Proved |
-| **T3** | μ-PL + heavy-ball + adaptive clip + β-decay 0.9 → 0 | Lyapunov $V_t = (L-L^\star) + \tfrac{\eta}{2}\|v\|^2$ сжимается со скоростью $(1-3\eta\mu/2)$ к окрестности $2G^2/(3\mu)$ | ✅ **Closes Princeton OP1** |
+| **T3** | μ-PL + heavy-ball + adaptive clip + β-decay 0.9 → 0 | Lyapunov $V_t = (L-L^\star) + \tfrac{\eta}{2}\|v\|^2$ сжимается со скоростью $(1-3\eta\mu/2)$ к окрестности $2G^2/(3\mu)$ | ✅ **first stability guarantee for ZO heavy-ball (PL regime)** |
 | **T4** | T3 + Gaussian noise $\xi \sim \mathcal{N}(0,\sigma^2)$ | Per-round $(\varepsilon_1,\delta)$-DP с $\varepsilon_1 = C\sqrt{2\ln(1.25/\delta)}/\sigma$ | ✅ Proved |
 
 > **Honesty disclaimer.** Скорость T3 матчит plain SGD под PL — асимптотического ускорения момент не даёт (согласовано с Bottou–Curtis–Nocedal 2018, T5.1). Эмпирический 3× transient speedup наблюдается, но строгое доказательство — открытый вопрос.
@@ -168,6 +168,8 @@ dmezo/
 | **D-MeZO-N (`update_share`)** | **16 байт (1 float + 1 int)** | **≈ 64 KB** |
 
 D-MeZO-N достигает **10⁹×** компрессии vs FedAvg. Тот же порядок, что у FedKSeed — но добавляет peer-to-peer топологию, доказательство сходимости с моментом и DP-гарантию.
+
+**Head-to-head vs FedKSeed** (Qwen3.5-4B-Base / MathLogicQA / 3 seeds / 500 rounds / 4 clients): D-MeZO-N v2 beats FedKSeed on loss 3/3 seeds (1.334 ± 0.014 vs 1.466 ± 0.023); D-MeZO-N v2 also beats vanilla MeZO on loss 3/3 seeds (vanilla 1.463 ± 0.023). Accuracy CIs include 0 at n=3 — not significant. Caveat: FedKSeed run at its default K=4096 hyperparameters without parity-tuned lr×β grid search. See `head-to-head/summary.txt`.
 
 ---
 

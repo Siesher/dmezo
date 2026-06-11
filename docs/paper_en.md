@@ -7,7 +7,7 @@ lang: en
 
 # Abstract
 
-We introduce **D-MeZO-N** — Decentralized Federated MeZO with Nesterov-style **stabilization** — a peer-to-peer federated zeroth-order optimizer for large language model fine-tuning with formal momentum stability analysis under bounded variance. Building on Malladi et al.'s MeZO (memory-efficient zeroth-order, NeurIPS 2023) we replace the single-machine setup with $n$ clients connected by a doubly-stochastic mixing matrix $W$ (Koloskova et al. 2020), where each client **independently** samples its own perturbation direction $z_i$ and communicates only a single scalar ($\rho_i$) and integer seed per round per neighbour — eliminating gigabyte-scale gradient exchange and providing $1/n$ variance reduction across **both** data and direction noise components. To stabilise heavy-ball momentum under high ZO variance we introduce **adaptive $\rho$-clipping** (running 95-percentile × 1.3) combined with **drift-reset** (zeroing velocity on eval-loss uptick detection) and linear $\beta$-decay $0.9 \to 0$ — the D-MeZO-N v2 (combo) recipe. **On Qwen3.5-4B-Base / MathLogicQA / 3 paired seeds D-MeZO-N v2 achieves final loss 1.2926 ± 0.010 vs vanilla MeZO 1.3681 ± 0.018 (Δ = −5.5%, 3/3 same direction), final accuracy 0.400 vs 0.377 (+2.3pp mean)** — the first paper-scale multi-seed validated empirical improvement of decentralized federated MeZO over vanilla MeZO on a convergent reasoning task. Component recipes either fail multi-seed validation (v1 fixed clip C=50: 3/3 worse, +7.0% loss; drift-reset alone: 3/3 worse) or show seed-specific accuracy effects (adaptive clip alone: loss winner, acc varies). Combo achieves **lowest loss-std across momentum methods** (0.010 vs 0.018 vanilla) — additional stability metric. We complement the empirical study with four formal convergence theorems — **Theorem 1** (convex + momentum + decentralized, $\rho$-clipping), **Theorem 2** (non-convex Polyak-Łojasiewicz, no momentum, $1/n$ federated speedup), **Theorem 3** (PL + heavy-ball + β-decay + ρ-clip; Lyapunov technique, closes Princeton Open Problem 1) and **Theorem 4** (DP extension of T3 via dual-use ρ-clip as L2-sensitivity; per-round (ε=10, δ=10⁻³)-DP at ~6% utility cost). **Importantly, Theorem 3 establishes stability and linear convergence to a noise floor; the asymptotic rate matches plain SGD under PL — no asymptotic acceleration is claimed**, consistent with Bottou-Curtis-Nocedal 2018 T5.1. A 3× empirical transient speedup (Day 8 R1b) is reported as observation; a formal transient acceleration analysis remains open. Full proofs are consolidated in `docs/theory_rigorous.md`.
+We introduce **D-MeZO-N** — Decentralized Federated MeZO with Nesterov-style **stabilization** — a peer-to-peer federated zeroth-order optimizer for large language model fine-tuning with formal momentum stability analysis under bounded variance. Building on Malladi et al.'s MeZO (memory-efficient zeroth-order, NeurIPS 2023) we replace the single-machine setup with $n$ clients connected by a doubly-stochastic mixing matrix $W$ (Koloskova et al. 2020), where each client **independently** samples its own perturbation direction $z_i$ and communicates only a single scalar ($\rho_i$) and integer seed per round per neighbour — eliminating gigabyte-scale gradient exchange and providing $1/n$ variance reduction across **both** data and direction noise components. To stabilise heavy-ball momentum under high ZO variance we introduce **adaptive $\rho$-clipping** (running 95-percentile × 1.3) combined with **drift-reset** (zeroing velocity on eval-loss uptick detection) and linear $\beta$-decay $0.9 \to 0$ — the D-MeZO-N v2 (combo) recipe. **On Qwen3.5-4B-Base / MathLogicQA / 3 paired seeds D-MeZO-N v2 achieves final loss 1.293 ± 0.010 vs vanilla MeZO 1.368 ± 0.018 (Δ = −5.5%, 3/3 same direction, paired $t = 5.3$, $p < 0.05$)** — the first paper-scale multi-seed validated empirical improvement of decentralized federated MeZO over vanilla MeZO on a convergent reasoning task. Final accuracy shows a positive but statistically insignificant trend (+2.3pp mean; per-seed {−1, +8, 0}pp; paired $t \approx 0.8$, $p \approx 0.5$; 100-example eval pool, SE ≈ 4.5pp) — we report it for transparency and do not claim it as a gain. Component recipes either fail multi-seed validation (v1 fixed clip C=50: 3/3 worse, +7.0% loss; drift-reset alone: 3/3 worse, +6.4% loss) or show seed-specific accuracy effects (adaptive clip alone: loss winner, acc varies). Combo achieves **lowest loss-std across momentum methods** (0.010 vs 0.018 vanilla) — additional stability metric. We complement the empirical study with four formal convergence theorems — **Theorem 1** (convex + momentum + decentralized, $\rho$-clipping), **Theorem 2** (non-convex Polyak-Łojasiewicz, no momentum, $1/n$ federated speedup), **Theorem 3** (PL + heavy-ball + β-decay + ρ-clip; Lyapunov technique — the first stability guarantee for ZO heavy-ball in the PL regime) and **Theorem 4** (DP extension of T3 via dual-use ρ-clip as L2-sensitivity; per-round (ε=10, δ=10⁻³)-DP at ~6% utility cost). **Importantly, Theorem 3 establishes stability and linear convergence to a noise floor; the contraction rate $(1-3\eta\mu/2)$ does not improve on the plain SGD-under-PL rate $(1-2\eta\mu)$ (Karimi et al. 2016) — no asymptotic acceleration is claimed**, consistent with Bottou–Curtis–Nocedal 2018 (Thm 5.1). A 3× empirical transient speedup (Day 8 R1b) is reported as observation; a formal transient acceleration analysis remains open. Full proofs are consolidated in `docs/theory_rigorous.md`.
 
 # 1. Introduction
 
@@ -18,9 +18,9 @@ This paper closes the gap with eight contributions:
 - **C1** — First federated MeZO on a hybrid linear-attention LLM (Qwen3.5-4B-Base).
 - **C2** — D-MeZO is robust to extreme partition heterogeneity: Dirichlet($\alpha=0.5$) tax $\leq 13\%$ on the Day 5 grid.
 - **C3** — Topology cost $\leq 7\%$ at $n=4$ clients; counter-intuitively, ring(4) $\leq$ complete(4) on the ZO regime.
-- **C4** — **D-MeZO-N v2 = combo (adaptive ρ-clip B1 + drift-reset B5)** on paper-scale (Qwen3.5-4B-Base / MathLogicQA / 3 paired seeds): final loss **1.2926 ± 0.010 vs vanilla 1.3681 ± 0.018 (Δ = −5.5%, 3/3 same direction)**, final accuracy **0.400 vs 0.377 (+2.3pp mean, per-seed Δ ∈ {−1, +8, 0} pp)**. Lowest std loss across momentum methods (0.010 vs adaptive_clip alone 0.021 and vanilla 0.018). **First paper-scale multi-seed validated empirical improvement of decentralized federated MeZO over vanilla MeZO.**
+- **C4** — **D-MeZO-N v2 = combo (adaptive ρ-clip B1 + drift-reset B5)** on paper-scale (Qwen3.5-4B-Base / MathLogicQA / 3 paired seeds): final loss **1.293 ± 0.010 vs vanilla 1.368 ± 0.018 (Δ = −5.5%, 3/3 same direction, paired $t = 5.3$, $p < 0.05$)**. Accuracy is reported for transparency only — a positive but statistically insignificant trend (+2.3pp mean, per-seed Δ ∈ {−1, +8, 0} pp; paired $t \approx 0.8$, $p \approx 0.5$; SE ≈ 4.5pp on the 100-example eval pool) — not claimed as a gain. Lowest std loss across momentum methods (0.010 vs adaptive_clip alone 0.021 and vanilla 0.018). **First paper-scale multi-seed validated empirical improvement of decentralized federated MeZO over vanilla MeZO (loss).**
 - **C5** — Independent $z_i$ per client (vs FedKSeed shared-$z$) provide $1/n$ variance reduction in **both** data and direction noise. Communication: 16 bytes/round/neighbor at `update_share` consensus mode.
-- **C6** — **Theorem 3**: closed-form Lyapunov convergence for PL + heavy-ball + ρ-clip + β-decay at rate $(1 - 3\eta\mu/2)$ and neighbourhood $2G^2/(3\mu)$. **Closes Princeton Open Problem 1** (momentum convergence for ZO under PL). **Importantly: rate matches plain SGD — no asymptotic acceleration claimed** (consistent with Bottou-Curtis-Nocedal 2018 T5.1); transient empirical speedup remains open problem.
+- **C6** — **Theorem 3**: closed-form Lyapunov convergence for PL + heavy-ball + ρ-clip + β-decay at rate $(1 - 3\eta\mu/2)$ and neighbourhood $2G^2/(3\mu)$ — the **first stability guarantee for ZO heavy-ball (PL regime)**. **Importantly: the contraction rate $(1-3\eta\mu/2)$ does not improve on the plain SGD-under-PL rate $(1-2\eta\mu)$ (Karimi et al. 2016) — no asymptotic acceleration claimed** (consistent with Bottou–Curtis–Nocedal 2018, Thm 5.1); the transient empirical speedup remains an open question.
 - **C7** — **Theorem 4**: DP extension of T3 via **dual-use ρ-clip** — same $C$ used for momentum stability **simultaneously serves as L2-sensitivity** for Gaussian mechanism. Per-round $(\varepsilon=10, \delta=10^{-3})$-DP at ~6% utility cost on Qwen3.5-0.8B / MathLogicQA. T-round composition acknowledged as explicit limitation; subsampling amplification (Abadi 2016) — future work.
 - **C8** — Honest multi-seed validated negatives: v1 (fixed $C=50$): 3/3 worse (+7.0% loss); drift-reset alone: 3/3 worse (+6.4%); look-ahead Nesterov diverges 7× faster (R20 vs R140); K=3 multi-direction equal-compute loses; ε(t) warmup schedules robustly lose across 16+ cells. Clean falsification evidence on scope of applicability.
 
@@ -32,7 +32,7 @@ This paper closes the gap with eight contributions:
 
 **$\ell_2$-smoothing analysis (Russian school).** Parallel to SPSA, a Gaussian/uniform-smoothing tradition for convex ZO has been developed (Nesterov-Spokoiny 2017, FOCM). Gasnikov et al. (2023, "Randomized gradient-free methods in convex optimization", *Encyclopedia of Optimization*, arXiv:2211.13566) systematise this framework: two-point estimator $\nabla f_\gamma(x, e) = d \cdot \frac{f(x+\gamma e) - f(x-\gamma e)}{2\gamma} \cdot e$ for $e \sim \mathrm{Unif}(S_2^d)$, bias bound $f(x) \le f_\gamma(x) \le f(x) + \gamma M_2$, and variance bound $\mathbb{E}\|\nabla f_\gamma\|^2 \le \sqrt{2}\min(q, \ln d) d^{2/q} M_2^2$. These bounds form the formal foundation of our convergence proofs T1-T4. The survey covers convex/strongly convex cases with accelerated rates; PL + heavy-ball (where D-MeZO-N operates) is not addressed — this is our delta.
 
-**D-MeZO-N — SPSA + MeZO + 4 new elements.** Our method builds on the SPSA lineage (34 years of stochastic approximation theory) and adds: (1) federated wrapper with **independent per-client $z_i$** plus gossip mixing matrix $W$ (vs FedKSeed-style shared seed pool); (2) heavy-ball scalar momentum with adaptive ρ-clip and drift-reset (vs SPSA's adaptive gain without momentum); (3) closed-form Lyapunov convergence proof under PL (closes Princeton Open Problem 1); (4) dual-use ρ-clip as L2-sensitivity for Gaussian-mechanism DP (a targeted literature search for "DP-SPSA" returns no results — open niche).
+**D-MeZO-N — SPSA + MeZO + 4 new elements.** Our method builds on the SPSA lineage (34 years of stochastic approximation theory) and adds: (1) federated wrapper with **independent per-client $z_i$** plus gossip mixing matrix $W$ (vs FedKSeed-style shared seed pool); (2) heavy-ball scalar momentum with adaptive ρ-clip and drift-reset (vs SPSA's adaptive gain without momentum); (3) closed-form Lyapunov convergence proof under PL — the first stability guarantee for ZO heavy-ball in the PL regime; (4) dual-use ρ-clip as L2-sensitivity for Gaussian-mechanism DP (a targeted literature search for "DP-SPSA" returns no results — open niche).
 
 **Decentralised SGD.** Koloskova et al. (2020) provide a unified analysis for D-SGD with arbitrary mixing matrices $W$. Their Theorem 2 (convex) and Theorem 8 (PL) bound the convergence rate as a function of the spectral gap $\rho(W)$ and gradient heterogeneity $\zeta^2$. In parallel, Beznosikov, Richtárik et al. (NeurIPS 2022, arXiv:2207.10792) develop decentralized SGD with communication compression for variational inequalities — a VI-counterpart to our 16-byte-per-round economy; Sadiev et al. (2022, *EURO J Comp Opt*) provide lower bounds for decentralized personalized FL that bound the optimality of our T1 from below.
 
@@ -70,7 +70,7 @@ We bound the per-step contribution to $v_i$ by symmetric clipping:
 
 $$\mathrm{clip}(x, \pm C) := \max(-C, \min(C, x)).$$
 
-Threshold $C = 50$ was selected empirically.
+A fixed threshold $C = 50$ (v1 recipe) was selected empirically on the SST-2 ablations (§5.4). At paper scale this fixed value proved over-tight (§5.6); the **D-MeZO-N v2** recipe replaces it with an adaptive threshold $C_t = \alpha \cdot \mathrm{quantile}_{0.95}(\{|\hat\rho|\}_{\text{last 50 rounds}})$, $\alpha = 1.3$ (component B1), paired with a drift-reset that zeros the velocity buffer on eval-loss uptick (component B5). See §5.6.2 for the v2 derivation and headline result.
 
 # 4. Theory
 
@@ -112,6 +112,47 @@ $$\mathbb{E}[L(\bar\theta_T) - L^\star] \leq \tilde{O}\!\left( \sqrt{\frac{L \cd
 
 $$\mathbb{E}[L(\bar\theta_T) - L^\star] \leq (1 - \eta\mu)^T \Delta_0 + \tilde{O}\!\left( \frac{\eta L r(H) G^2}{\mu n} \right) + \tilde{O}\!\left( \frac{\eta^2 \rho^2 L^2 r(H) G^2}{\mu (1-\rho)^2} \right) + O\!\left( \frac{\epsilon^2 L^2 r(H)}{\mu} \right).$$
 
+## 4.5 Theorem 3 — PL case with heavy-ball momentum and $\beta$-decay
+
+**Theorem 3** (D-MeZO-N convergence under PL + momentum). *Assume (A1)+(A2/PL) and a $\rho$-clipping bound (A4) $\mathbb{E}\hat\rho^2 \leq G^2$ for all iterations. For $\eta = (1-\beta_0^2)/(8\ell)$ and any schedule $\beta_t \in [0, \beta_0]$ (including constant $\beta_0$ and linear decay $\beta_0 \to 0$), the heavy-ball MeZO iterate satisfies*
+
+$$\mathbb{E}[V_T] \;\leq\; \bigl(1 - \tfrac{3\eta\mu}{2}\bigr)^T \, V_0 \;+\; \frac{2 G^2}{3\mu},$$
+
+*where $V_t := (L(\theta_t) - L^{\star}) + (\eta/2)\|v_t\|^2$ is a Lyapunov function combining potential and kinetic energy. The loss component obeys the same bound:*
+
+$$\mathbb{E}[L(\theta_T) - L^{\star}] \;\leq\; \bigl(1 - \tfrac{3\eta\mu}{2}\bigr)^T V_0 \;+\; \frac{2 G^2}{3\mu}.$$
+
+**Proof sketch.** From the extended (A1)-smoothness in both components of $V_t$ we obtain the descent inequality $V_{t+1} \leq V_t - \tfrac{3\eta}{4}\|\nabla L_t\|^2 - \tfrac{3\eta(1-\beta_t^2)}{8}\|v_t\|^2 + \eta G^2$ (the cross-terms $\pm\eta\beta_t\langle\nabla L_t, v_t\rangle$ from the potential and kinetic components cancel exactly — this is why the kinetic multiplier in $V_t$ is $\eta/2$). The kinetic term is non-positive and contracts $V_t$ at rate $3(1-\beta_t^2)/4$, while PL converts the potential term, $-\tfrac{3\eta}{4}\|\nabla L\|^2 \leq -\tfrac{3\eta\mu}{2}(L - L^{\star})$. Taking the minimum of the two contraction rates and choosing $\eta = (1-\beta_0^2)/(8\ell)$ (so the potential rate dominates for the admissible $\mu$ range) yields a uniform rate $3\eta\mu/2$ independent of the $\beta_t$ schedule. Geometric summation $\sum_{k=0}^\infty (1 - 3\eta\mu/2)^k \eta G^2 = 2G^2/(3\mu)$ gives the neighbourhood. The full proof is in `docs/theory_rigorous.md` §3. ∎
+
+**Corollaries.**
+
+- **Linear convergence** to the $2G^2/(3\mu)$-neighbourhood. The contraction rate $(1 - 3\eta\mu/2)$ **does not improve on the plain SGD-under-PL rate $(1 - 2\eta\mu)$ (Karimi et al. 2016)** — to our knowledge this is the first such stability guarantee in the ZO-LLM setting, but it establishes that momentum can be made *safe* (non-divergent) in the high-variance ZO regime, not that it is *faster*. This is consistent with Bottou–Curtis–Nocedal (2018, Thm 5.1): heavy-ball gives no asymptotic acceleration under stochastic gradients.
+- **Rescue mechanism.** Under $\rho$-clipping (A4), $G^2 \leq C^2 r(H)$, so the neighbourhood is bounded; without clipping $G^2$ is unbounded and the iterate sequence diverges (§5.5 confirms this empirically).
+- **β-decay.** The kinetic contraction term $3(1-\beta_t^2)/4$ grows as $\beta_t \to 0$, removing the late-stage drift observed for constant $\beta$ (R1b, §5.4 regions C/D).
+
+## 4.6 Theorem 4 — DP extension of Theorem 3
+
+We extend D-MeZO-N with isotropic Gaussian noise $\xi_t \sim \mathcal{N}(0, \sigma^2)$ added to the clipped projected gradient $\tilde\rho_t = \mathrm{clip}(\hat\rho_t, \pm C)$, turning each MeZO step into one application of the Gaussian mechanism (Dwork-Roth 2014).
+
+**Theorem 4a** (convergence under DP-noise). *Under the assumptions of Theorem 3 with DP-noise variance $\sigma^2$, the Lyapunov iterate satisfies*
+
+$$\mathbb{E}[V_T] \;\leq\; \bigl(1 - \tfrac{3\eta\mu}{2}\bigr)^T V_0 \;+\; \frac{2(C^2 + \sigma^2)\, d\, \ell}{3\mu}.$$
+
+*The $\sigma^2 d$ term reflects that DP-noise $\xi z$ is isotropic in parameter space (no alignment with $\nabla L$), so it scales with the **full** dimension $d$ rather than the effective rank $r(H) \ll d$ — i.e. DP-noise breaks the Malladi $r(H)$-substitution trick.*
+
+**Theorem 4b** (per-round privacy). *One MeZO step with clip $C$ and Gaussian noise $\sigma$ provides $(\varepsilon_1, \delta)$-DP per round with*
+
+$$\varepsilon_1 = \frac{C\sqrt{2\ln(1.25/\delta)}}{\sigma}.$$
+
+*Proof: $\mathrm{clip}(\hat\rho, \pm C)$ has L2-sensitivity $\Delta = C$; the Gaussian mechanism with $\sigma \geq \Delta\sqrt{2\ln(1.25/\delta)}/\varepsilon$ yields $(\varepsilon, \delta)$-DP (Dwork-Roth 2014). The dual-use of $C$ — momentum-stabilization threshold and L2-sensitivity bound simultaneously — means no extra per-sample gradient clipping is needed (cf. DP-SGD, Abadi et al. 2016). ∎*
+
+**Composition caveat (honest).** The per-round $\varepsilon_1$ above does **not** compose for free over $T$ training rounds:
+
+- **Basic composition** (Dwork-Roth Thm 3.16): $\varepsilon_T = T\varepsilon_1$. For $T = 200$ and $\varepsilon_1 = 10$ this gives $\varepsilon_T \approx 2000$ — vacuous.
+- **Advanced / RDP composition** (Dwork-Rothblum-Vadhan 2010; Mironov 2017; Abadi 2016): the Rényi/moments accountant tightens this to $O(\varepsilon_1\sqrt{T\ln(1/\delta)})$ for the Gaussian mechanism, but the second-order term remains catastrophic for $\varepsilon_1 > 1$.
+
+We therefore report **per-round $\varepsilon$** (the standard convention for one-shot federated fine-tuning) and treat $T$-round composition as an explicit limitation. A full RDP-accountant treatment, together with mini-batch subsampling amplification (Abadi 2016) — which our current full-batch-per-round setup does not exploit — is future work. The full statements and proofs are in `docs/theory_rigorous.md` §6.5.
+
 # 5. Experiments
 
 ![Figure 1. Per-cell trajectories of the Day 5 federated grid. All federated configurations consistently descend below the centralized baseline.](figures/fig1_day5_grid.png){width=16cm}
@@ -151,7 +192,7 @@ We further test D-MeZO-N on **HellaSwag** (Zellers et al. 2019), 4-way commonsen
 
 3. **Federated outperforms centralized.** Federated D-MeZO-N reaches **+6.25pp accuracy** above centralized vanilla on the same Qwen3-4B / HellaSwag setup. Two compounding effects: (a) $\rho$-clipping + $\beta$-decay stabilization (the rescue), (b) $n=4$-client averaging of independent $z$-direction probes ($1/\sqrt{n}$ variance reduction per Theorem 1).
 
-This validates Theorem 3 directly: under (A4) $\rho$-clipping at $C=50$, the variance bound $G^2 \le C^2 r(H)$ holds, and the iterate sequence converges linearly to the $4G^2/(3\mu)$ neighborhood. Without clipping (centralized vanilla), $G^2$ is unbounded and the neighborhood diverges — empirically confirmed.
+This validates Theorem 3 directly: under (A4) $\rho$-clipping at $C=50$, the variance bound $G^2 \le C^2 r(H)$ holds, and the iterate sequence converges linearly to the $2G^2/(3\mu)$ neighborhood. Without clipping (centralized vanilla), $G^2$ is unbounded and the neighborhood diverges — empirically confirmed.
 
 ## 5.6 Cross-lingual + cross-architecture: MathLogicQA on Qwen3.5-4B-Base
 
@@ -159,9 +200,9 @@ To close the universality claim, we additionally test on **MathLogicQA** (part o
 
 The data pool is MERA train (680 labelled examples, test labels are private); we split 80/20 internally to obtain 544 train / 136 val, then subsample to 500 train / 100 eval. Setup otherwise identical to §5.5.
 
-### 5.6.1 Multi-seed paired comparison (3 seeds × 1000 rounds)
+### 5.6.1 v1 multi-seed falsification (fixed $C=50$, 2-variant initial run, 3 seeds × 1000 rounds)
 
-To avoid single-seed claims, we run a paired comparison of `vanilla` vs `dmezo_n` (β-decay 0.9→0 + ρ-clip C=50) on the same 4-client federated setup, with 3 seeds {42, 43, 44}. Each pair shares partition and data; only the variant differs.
+The single-seed Day 8 R1d hint ("D-MeZO-N v1 with fixed $C=50$ beats vanilla by 6.5%") was the original motivation. To avoid single-seed claims, we first ran a **2-variant** paired comparison of `vanilla` vs `dmezo_n` v1 (β-decay 0.9→0 + fixed ρ-clip $C=50$) on the same 4-client federated setup, with 3 seeds {42, 43, 44}. Each pair shares partition and data; only the variant differs. This run **falsifies the v1 recipe**: v1 is robustly worse than vanilla.
 
 | Seed | vanilla loss / acc | dmezo_n loss / acc | Δloss | Δacc final | Δacc peak |
 |---|---|---|---|---|---|
@@ -179,17 +220,52 @@ To avoid single-seed claims, we run a paired comparison of `vanilla` vs `dmezo_n
 
 3. **Peak accuracy in trajectory is higher and earlier for D-MeZO-N on 2/3 seeds** (+2–3pp at R≈300, vs vanilla peak at R≈500–700). Mean peak boost +1.67pp, **within ±1σ noise on 100-example eval (SE±4.9pp)** — not significant in isolation, but the *direction is consistent across 2/3 seeds and theoretical mechanism is identified*. Practical implication: D-MeZO-N may benefit from early-stopping on accuracy metric. Pre-registration of this benefit would require fresh experiments.
 
-### 5.6.2 Updated cross-task summary
+### 5.6.2 Extended 5-variant sweep — D-MeZO-N v2 (combo) headline (3 seeds × 1000 rounds)
 
-Combining §5.5 (HellaSwag rescue, single-seed pending multi-seed validation) and §5.6.1 (MathLogicQA multi-seed, this section):
+The v1 falsification (§5.6.1) showed the fixed $C=50$ clip is over-tight at paper scale: on Qwen3.5-4B-Base the median $|\hat\rho| \approx 180$, so $C=50$ truncates most of the useful signal. We therefore ran an **extended 5-variant** paired sweep on the same setup (Qwen3.5-4B-Base / MathLogicQA / 4 clients complete IID / 1000 rounds / lr=$3\cdot10^{-7}$ / ε=$10^{-3}$ / 3 paired seeds {42,43,44}; 5 variants × 3 seeds = 15 cells, ~12 h Colab Blackwell). The five variants isolate each mechanism: vanilla, v1 (fixed $C=50$), drift-only (B5 alone), adaptive_clip (B1 alone), and combo (B1+B5 = **D-MeZO-N v2**).
 
-| Task | Vanilla MeZO | D-MeZO-N v1 | Interpretation | Statistical status |
+| Variant | s42 loss/acc | s43 loss/acc | s44 loss/acc | Mean ± std loss | Mean ± std acc | Δloss vs vanilla | Direction (3 seeds) |
+|---|---|---|---|---|---|---|---|
+| **vanilla MeZO** | 1.3747 / 0.38 | 1.3432 / 0.36 | 1.3863 / 0.39 | **1.3681 ± 0.0182** | **0.3767 ± 0.0125** | reference | — |
+| D-MeZO-N v1 (fixed $C=50$) | 1.4598 / 0.38 | 1.4569 / 0.36 | 1.4735 / 0.39 | 1.4634 ± 0.0072 | 0.3767 ± 0.0125 | **+7.0%** worse | **3/3 worse** (falsified) |
+| Drift-only (B5 alone) | 1.4608 / 0.38 | 1.4531 / 0.36 | 1.4537 / 0.39 | 1.4559 ± 0.0035 | 0.3767 ± 0.0125 | **+6.4%** worse | **3/3 worse** (falsified) |
+| Adaptive_clip (B1 alone) | 1.2691 / 0.41 | 1.3135 / 0.33 | 1.3135 / 0.43 | 1.2987 ± 0.0209 | 0.3900 ± 0.0432 | **−5.1%** | **3/3 wins loss**, acc seed-specific |
+| **D-MeZO-N v2 = combo (B1+B5, 54 resets)** ⭐ | 1.2790 / 0.37 | 1.2951 / 0.44 | 1.3036 / 0.39 | **1.2926 ± 0.0102** | **0.4000 ± 0.0294** | **−5.5%** | **3/3 wins loss** |
+
+**Per-seed paired comparison (combo v2 vs vanilla):**
+
+| Seed | vanilla loss / acc | combo v2 loss / acc | Δloss | Δacc |
 |---|---|---|---|---|
-| SST-2 (Day 8 R1d) | converges | 6.0% better loss | acceleration | single-seed (n=1) |
-| **HellaSwag** | **diverges (−2.5pp acc)** | **converges (+3.75pp acc)** | **rescue** | single-seed (pending) |
-| **MathLogicQA (3-seed CI)** | converges | **loss +7% worse, final acc tied, peak acc +1.67pp earlier** | **safe-tracking (no advantage on final, peak earlier)** | **3 seeds, paired, CI tight** |
+| 42 | 1.3747 / 0.38 | 1.2790 / 0.37 | −7.0% | −1pp |
+| 43 | 1.3432 / 0.36 | 1.2951 / 0.44 | −3.6% | +8pp |
+| 44 | 1.3863 / 0.39 | 1.3036 / 0.39 | −6.0% | 0pp |
+| **Mean** | **1.3681 / 0.3767** | **1.2926 / 0.4000** | **−5.5%** | **+2.3pp** |
 
-The same recipe (β-decay 0.9 → 0 + ρ-clip 50) works as **rescue** when vanilla diverges (HellaSwag: $|\hat\rho|$ peaks at +159, neighborhood diverges) and as **safe convergence without strict accuracy advantage** when vanilla converges (MathLogicQA: 3-seed CI rules out final-acc improvement; only peak-acc-earlier survives). Theorem 3 predicts both regimes under the same mechanism: bounded $G^2$ under ρ-clip → linear convergence to noise floor; without clip, unbounded $G^2$ → divergence.
+**Headline finding (loss only).** D-MeZO-N v2 = combo (B1 adaptive_clip + B5 drift-reset) **robustly beats vanilla MeZO on loss**: final loss **1.293 ± 0.010 vs 1.368 ± 0.018 (Δ = −5.5%, 3/3 seeds same direction; paired $t = 5.32$, df=2, $p \approx 0.034$ — significant)**. Final accuracy shows a positive but **statistically insignificant** trend (+2.3pp mean; per-seed {−1, +8, 0}pp; paired $t \approx 0.82$, df=2, $p \approx 0.50$; the +8pp on s43 dominates, and on a 100-example eval pool SE ≈ 4.5pp) — we report it for transparency and **do not claim it as a gain**.
+
+**Four findings from the 5-variant sweep:**
+
+1. **v1 (fixed $C=50$) is falsified** — 3/3 seeds worse than vanilla (+7.0% loss), with no accuracy compensation (final acc tied at 0.3767). The fixed clip is over-tight at paper scale, truncating most of the signal at the observed $|\hat\rho|$ scale.
+
+2. **Drift-reset alone (B5) is insufficient** — 3/3 seeds worse (+6.4% loss), essentially indistinguishable from v1. Zeroing velocity does not help if the underlying clip still suppresses the signal; B5 needs a clip that lets the gradient through (B1).
+
+3. **Adaptive-clip alone (B1) wins on loss but acc is seed-specific.** B1 tracks the running 95-percentile of $|\hat\rho|$, relaxing the clip to the data-driven range. It wins loss 3/3 (−5.1%), but its accuracy is seed-dependent (per-seed {0.41, 0.33, 0.43}, std 0.043 — the largest of any variant) and its loss std (0.021) is higher than vanilla's (0.018): the loosened clip lets momentum overshoot, which the drift-reset is designed to catch.
+
+4. **Combo (B1+B5 = v2) is robust on loss with the lowest std.** Adding drift-reset to adaptive-clip preserves the loss win (−5.5%, 3/3) **and** achieves the **lowest loss-std across all momentum methods** (0.010 vs B1-alone 0.021 vs vanilla 0.018). Drift-reset fired 54 times total across 3 seeds (≈18/seed): on s43 it holds the trajectory below the late-stage drift that B1-alone exhibits after R600 (B1-alone R600=1.309 → R1000=1.314; combo 1.286 → 1.295). B5 surgically zeros $v_t$ when `eval_loss > rolling_min + 0.1`, so the Lyapunov potential component keeps contracting while kinetic energy is reset — the mechanism predicted by Theorem 3.
+
+This makes **D-MeZO-N v2 the recommended default recipe** (adaptive clip window=50/quantile=0.95/$\alpha=1.3$ + drift-reset window=50/threshold=0.1 + β-decay 0.9→0).
+
+### 5.6.3 Updated cross-task summary
+
+Combining §5.5 (HellaSwag rescue, single-seed pending multi-seed validation), §5.6.1 (v1 falsification) and §5.6.2 (v2 headline):
+
+| Task | Vanilla MeZO | D-MeZO-N | Interpretation | Statistical status |
+|---|---|---|---|---|
+| SST-2 (Day 8 R1d) | converges | v1: 6.0% better loss | transient acceleration | single-seed (n=1) |
+| **HellaSwag** | **diverges (−2.5pp acc)** | **v1: converges (+3.75pp acc)** | **rescue** | single-seed (pending) |
+| **MathLogicQA (3-seed)** | converges (loss 1.368 ± 0.018) | **v2 combo: loss 1.293 ± 0.010 (−5.5%, 3/3, p<0.05); acc +2.3pp n.s.** | **loss win (v1 falsified, combo wins)** | **3 seeds, paired, $t=5.3$** |
+
+The v2 combo recipe (adaptive ρ-clip + drift-reset + β-decay) works as **rescue** when vanilla diverges (HellaSwag: $|\hat\rho|$ peaks at +159, neighborhood diverges; v1 tested, v2 rescue-regime test pending) and as a **statistically significant loss improvement** when vanilla converges (MathLogicQA, this section). Theorem 3 predicts both regimes under the same mechanism: bounded $G^2$ under ρ-clip → linear convergence to noise floor; without clip, unbounded $G^2$ → divergence.
 
 ![Figure 6. Cross-domain trajectories illustrating the two D-MeZO-N regimes. (a) HellaSwag on Qwen3-4B (single-seed s42): centralized vanilla MeZO drifts upward from R200, while federated D-MeZO-N v1 descends monotonically. (b) MathLogicQA on Qwen3.5-4B-Base (single-seed view, before multi-seed validation): D-MeZO-N tracks vanilla closely. See §5.6.1 for finalized 3-seed paired CI on this task.](figures/fig6_cross_domain_trajectories.png){width=16cm}
 
@@ -205,11 +281,11 @@ The same recipe (β-decay 0.9 → 0 + ρ-clip 50) works as **rescue** when vanil
 
 **Practical recipe.** $\eta = 3 \cdot 10^{-7}$, $\epsilon = 10^{-3}$, $\rho$-clipping with $C \approx 1.3 \times \max$ observed $|\hat\rho|$, linear $\beta$-schedule $\beta_t = 0.9 \cdot (1 - t/T)$, doubly-stochastic mixing matrix.
 
-**Note on "acceleration".** § 5.4 reports a 3× early-stage speedup (R1b at constant $\beta=0.9$ with clip $C=50$) of D-MeZO-N over vanilla D-MeZO on the worst federated cell. **Our formal analysis (Theorem 3 in `docs/theory_rigorous.md` §3) shows the asymptotic convergence rate of D-MeZO-N matches plain SGD under PL.** This is consistent with Bottou-Curtis-Nocedal (2018, *SIAM Review*, Theorem 5.1): heavy-ball momentum does not yield asymptotic speedup for stochastic gradient methods with $\sigma > 0$. The 3× speedup is therefore a **transient phenomenon** — momentum smooths variance in the early phase before the noise floor dominates. A formal **transient acceleration** bound (e.g., via Nesterov estimate sequence adapted to ZO + clip) remains an **open problem**, separately tracked in `docs/theory_rigorous.md` §6 Open Problem 1.
+**Note on "acceleration".** § 5.4 reports a 3× early-stage speedup (R1b at constant $\beta=0.9$ with clip $C=50$) of D-MeZO-N over vanilla D-MeZO on the worst federated cell. **Our formal analysis (Theorem 3, §4.5) shows the contraction rate of D-MeZO-N, $(1-3\eta\mu/2)$, does not improve on the plain SGD-under-PL rate $(1-2\eta\mu)$ (Karimi et al. 2016).** This is consistent with Bottou–Curtis–Nocedal (2018, *SIAM Review*, Theorem 5.1): heavy-ball momentum does not yield asymptotic speedup for stochastic gradient methods with $\sigma > 0$. The 3× speedup is therefore a **transient phenomenon** — momentum smooths variance in the early phase before the noise floor dominates. A formal **transient acceleration** bound (e.g., via Nesterov estimate sequence adapted to ZO + clip) remains an **open question**, separately tracked in `docs/theory_rigorous.md` §6.
 
 ## 6.5 Head-to-head: D-MeZO-N vs FedKSeed (Qin et al. 2024)
 
-To address the strongest reviewer concern — the absence of direct empirical comparison with a published federated zeroth-order baseline — we implement FedKSeed (Qin et al. 2024, ICML) within our framework and run a paired head-to-head experiment on Qwen3.5-4B-Base / MathLogicQA, identical setup to §5.6.1 (4 clients, 3 seeds, 1000 rounds, lr=$3 \cdot 10^{-7}$, $\epsilon=10^{-3}$, IID partition).
+To address the strongest reviewer concern — the absence of direct empirical comparison with a published federated zeroth-order baseline — we implement FedKSeed (Qin et al. 2024, ICML) within our framework and run a paired head-to-head experiment on Qwen3.5-4B-Base / MathLogicQA, matching the §5.6 setup (4 clients, 3 seeds {42,43,44}, lr=$3 \cdot 10^{-7}$, $\epsilon=10^{-3}$, IID partition) but at **500 rounds** per variant (vs 1000 in §5.6), using the D-MeZO-N v2 (combo B1+B5) recipe.
 
 ### 6.5.1 Algorithmic comparison
 
@@ -220,32 +296,36 @@ The three methods compared (see `docs/fedkseed_comparison.md` for full algorithm
 | Per-round directions | $n$ unique $z_i$ | $n$ unique $z_i$ | **1 shared $z$** |
 | Topology | Decentralized | Decentralized | Star (central server) |
 | Momentum | None | Heavy-ball + β-decay | None |
-| ρ-clipping | None | $C = 50$ | None |
+| ρ-clipping | None | adaptive (v2: B1) + drift-reset (B5) | None |
 | Per-edge communication | $O(d)$ (`weight_avg`) or $O(1)$ (`update_share`) | Same | $O(1)$ to server |
 
 **Theoretical positioning (Theorem 2, `docs/theory_rigorous.md` §2).** The stochastic floor $\eta C^2 r(H) \ell/(\mu n)$ achieves $1/n$ federated speedup only with **independent direction sampling per client**. FedKSeed uses one shared $z$ per round, so its noise floor reduces only the data-sampling component by $1/n$ — direction noise $\sigma_z^2$ is not reduced. D-MeZO and D-MeZO-N reduce both, predicting lower variance floors.
 
 ### 6.5.2 Empirical results
 
-The experiment was run with `scripts/head_to_head_fedkseed.py` on the same Colab Blackwell setup as §5.6.1. **Table 5 reports finalized 3-seed mean ± std** (paired analysis: same seed pairs vanilla, dmezo_n, fedkseed cells; data partition is deterministic per seed).
+The experiment was run with `scripts/head_to_head_fedkseed.py` on the same Colab Blackwell setup as §5.6. **Table 5 reports finalized 3-seed mean ± std** (paired analysis: same seed pairs vanilla, dmezo_n v2, fedkseed cells; data partition is deterministic per seed). All numbers are at 500 rounds/variant.
 
-| Variant | Final loss (mean ± std) | Final accuracy (mean ± std) | Wall-clock /seed | Comm bytes/round |
+| Variant | Final loss (mean ± std) | Final accuracy (mean ± std) | Per-seed loss | Comm bytes/round |
 |---|---|---|---|---|
-| Vanilla D-MeZO | **TBD** | **TBD** | **TBD** s | 64 B (update_share) |
-| **D-MeZO-N (ours)** | **TBD** | **TBD** | **TBD** s | 64 B (update_share) |
-| FedKSeed (Qin 2024) | **TBD** | **TBD** | **TBD** s | $\sim$ 64 B (4 scalars to server) |
+| Vanilla D-MeZO | 1.4630 ± 0.0229 | 0.3733 ± 0.0309 | 1.4945 / 1.4405 / 1.4542 | 64 B (update_share) |
+| **D-MeZO-N v2 (ours)** | **1.3341 ± 0.0142** ⭐ | **0.3900 ± 0.0374** | 1.3540 / 1.3228 / 1.3254 | 64 B (update_share) |
+| FedKSeed (Qin 2024) | 1.4656 ± 0.0225 | 0.3367 ± 0.0330 | 1.4668 / 1.4925 / 1.4375 | $\sim$ 64 B (4 scalars to server) |
 
-**Paired analyses (bootstrap 95 % CI):**
+**Loss ranking (the headline metric).** D-MeZO-N v2 beats **both** baselines on loss **3/3 seeds**: it beats FedKSeed on loss 3/3 seeds and beats vanilla on loss 3/3 seeds. FedKSeed and vanilla are statistically indistinguishable on loss (1.4656 vs 1.4630).
 
-- $\Delta_{\text{acc}}$ (D-MeZO-N vs vanilla): **TBD**
-- $\Delta_{\text{acc}}$ (D-MeZO-N vs FedKSeed): **TBD**
-- $\Delta_{\text{acc}}$ (FedKSeed vs vanilla): **TBD**
+**Paired analyses on accuracy (bootstrap 95 % CI, n=3):**
 
-(Figure 20: side-by-side loss + accuracy trajectories with shaded ±1σ bands across seeds.)
+- $\Delta_{\text{acc}}$ (D-MeZO-N v2 vs vanilla): **+0.0167**, CI [+0.0000, +0.0400] — **not significant**.
+- $\Delta_{\text{acc}}$ (D-MeZO-N v2 vs FedKSeed): **+0.0533**, CI [−0.0200, +0.1400] — **not significant**.
+- $\Delta_{\text{acc}}$ (FedKSeed vs vanilla): **−0.0367**, CI [−0.1000, +0.0300] — **not significant**.
 
-### 6.5.3 Interpretation (placeholder pending compute)
+All accuracy comparisons are not significant at $n=3$ (the 100-example eval pool gives SE ≈ 4.5pp); the robust signal is on loss. (Figure 20: side-by-side loss + accuracy trajectories with shaded ±1σ bands across seeds — `head-to-head/fig20_head_to_head_fedkseed_Qwen_Qwen3p5-4B-Base_mathlogicqa.png`.)
 
-[After running the script, fill in one of three honest narratives — see `docs/fedkseed_comparison.md` § "What to write in paper after run completes" for the three pre-registered storylines depending on outcome. The paper text here will be updated by replacing this paragraph with the appropriate one once `experiments/diagnostics/head_to_head_fedkseed_*.json` is populated.]
+### 6.5.3 Interpretation
+
+D-MeZO-N v2 is the only one of the three methods that improves on the vanilla loss, and it does so on every seed. FedKSeed, by contrast, tracks vanilla on loss (no momentum/clip to stabilize the trajectory) and trends slightly below vanilla on accuracy (−3.7pp mean, not significant). This is directionally consistent with the Theorem 2 positioning (§6.5.1): D-MeZO-N's independent per-client $z_i$ reduces **both** the data- and direction-noise components by $1/n$, whereas FedKSeed's single shared $z$ per round reduces only the data-sampling component — predicting a lower variance floor (and hence lower loss) for D-MeZO-N. The accuracy comparisons are inconclusive at this scale and we do not claim an accuracy advantage.
+
+**Important caveat (parity tuning).** FedKSeed was run at its default $K=4096$ hyperparameters **without a dedicated lr × β grid search**; a parity-tuned comparison (matching the per-method hyperparameter search budget) is future work. The comparison is also at **500 rounds** (not the 1000 rounds of §5.6), so the absolute losses are higher than the §5.6 headline. These two caveats mean the loss gap should be read as "v2 with our recipe beats FedKSeed-at-default", not as a tuned head-to-head.
 
 **Reproducibility caveat:** Our FedKSeed implementation is faithful to Qin et al. § 3 algorithm description (shared per-round seed, scalar aggregation, no momentum/clip) but runs in our codebase, not their official repository (`github.com/alibaba/FederatedScope/tree/FedKSeed`). For one cell we plan a cross-check using their original code as an integrity test; methodology described in `docs/fedkseed_comparison.md`.
 
@@ -440,22 +520,22 @@ Per-round ε reported above is for **one round** of training. **T-round composit
 **Empirical.**
 
 - **Multi-seed coverage.** Day 5 SST-2 grid has $n=2$ seeds; HellaSwag (§5.5) was single-seed at submission (multi-seed validation in progress — `validate_dmezo_n_rescue_multiseed.py`, Section 19 in Colab notebook); MathLogicQA (§5.6) is mid-sweep at the time of writing (4/6 of $\{$vanilla, dmezo\_n$\} \times \{$42, 43, 44$\}$ runs complete). Preliminary 2-seed results (see `docs/multiseed_analysis.md`) suggest the **+3.75pp peak-acc claim in §5.6 is inconsistent across seeds**: s42 shows 0pp boost, s43 shows +3pp boost — both within eval noise SE±4.9pp on 100-example pool. Conservative reading: D-MeZO-N **safe-tracks** vanilla (no divergence, comparable loss), with **possible** small accuracy advantage on some seeds. Full closure pending seed=44 + bootstrap CI.
-- **No head-to-head vs FedKSeed / Ferret / FedZeN.** Integration work is non-trivial (different topology assumptions, LoRA wrapping vs. full-parameter). Without this comparison, the relative position of D-MeZO-N against state-of-the-art federated ZO methods is unestablished — a **major weakness** flagged for future work.
+- **Head-to-head vs FedKSeed is at default hyperparameters only.** §6.5 reports a 3-seed paired comparison in which D-MeZO-N v2 beats FedKSeed on loss 3/3 seeds, but FedKSeed was run at its default $K=4096$ without a dedicated lr × β grid search, and only at 500 rounds. A parity-tuned comparison (and comparisons vs Ferret / FedZeN, whose integration is non-trivial due to different topology and LoRA-vs-full-parameter assumptions) remains future work.
 - **Scale.** Tested at $n=4$ clients and 4B parameters. Real federated deployments scale to 100+ clients and 8B+ models. One scale-up experiment (e.g., Qwen3-8B or $n=8$ clients) would address this; planned in `docs/upgrade_roadmap.md` §B.3.
 - **Task coverage.** All experiments are multi-choice classification (SST-2 binary; BoolQ binary; HellaSwag 4-way; MathLogicQA 4-way). No generative tasks (SAMSum, GSM8K, free-form QA) tested — the generative loss landscape may differ qualitatively in $r(H)$ and Hessian conditioning.
 - **Post-hoc tuning.** D-MeZO-N v1 hyperparameters ($\beta$-decay $0.9 \to 0$, clip $C=50$) were chosen via ablation on SST-2 (Day 8 R1d). HellaSwag (§5.5) and MathLogicQA (§5.6) used the **same** hyperparameters **without re-tuning** — we argue this as a universality test, but ideally would have been pre-registered before running.
 
 **Theoretical.**
 
-- **Theorem 3** establishes **stability and convergence to a noise floor** under PL + heavy-ball + β-decay, with **the same asymptotic rate as plain SGD** $(1-\eta\mu)^T$. **No asymptotic momentum acceleration is claimed.** This is consistent with Bottou-Curtis-Nocedal 2018.
-- **Empirical 3× transient speedup** (Day 8 R1b at constant $\beta=0.9$ before R300) is **not yet formally explained**. A transient acceleration analysis (estimate sequence adapted to ZO + ρ-clip) is open work (`docs/theory_rigorous.md` §6 Open Problem 1).
-- **Full decentralized Theorem 3** (combining $\rho_W < 1$ mixing with heavy-ball under PL) is incomplete; centralized version (this paper) plus convex decentralized (Theorem 1) cover two of the three needed corners (`docs/theory_rigorous.md` §6 Open Problem 2).
+- **Theorem 3** establishes **stability and convergence to a noise floor** under PL + heavy-ball + β-decay, at contraction rate $(1-3\eta\mu/2)$ which **does not improve on the plain SGD-under-PL rate $(1-2\eta\mu)$** (Karimi et al. 2016). **No asymptotic momentum acceleration is claimed** — the contribution is that momentum can be made *safe* (non-divergent) in the high-variance ZO regime. This is consistent with Bottou–Curtis–Nocedal 2018 (Thm 5.1).
+- **Empirical 3× transient speedup** (Day 8 R1b at constant $\beta=0.9$ before R300) is **not yet formally explained**. A transient acceleration analysis (estimate sequence adapted to ZO + ρ-clip) is an open question (`docs/theory_rigorous.md` §6).
+- **Full decentralized extension of Theorem 3** (combining $\rho_W < 1$ mixing with heavy-ball under PL) is incomplete; the centralized version (this paper) plus convex decentralized (Theorem 1) cover two of the three needed corners — the decentralized PL + heavy-ball case is an open question (`docs/theory_rigorous.md` §6).
 - **Look-ahead Nesterov variant** has dual-channel noise structure (probe + update both depend on $v_t$) — empirically diverges 7× faster than heavy-ball (R20 vs R140). No theoretical bound derived; matches qualitative reasoning but not formally closed.
 - **PL constant $\mu$ for LLMs is unproven globally** — locally on overparameterized trajectory it is plausible (Liu-Zhu-Belkin 2022) but we use it as assumption.
 
-# 8. Calibrated summary of achievements (as of 2026-05-20)
+# 8. Calibrated summary of achievements
 
-Six tiers ranked by evidence strength, separating what has been **solidly demonstrated**, what is **promising but preliminary**, what has been **falsified**, and what is **pending**. Each claim cites the relevant experimental section.
+Tiers ranked by evidence strength, separating what has been **solidly demonstrated**, what is **promising but preliminary**, what has been **falsified**, and what is **pending**. Each claim cites the relevant experimental section.
 
 ### A. Solidly demonstrated (multi-seed or task-replicated, paper-ready)
 
@@ -463,7 +543,9 @@ Six tiers ranked by evidence strength, separating what has been **solidly demons
 |---|---|---|
 | **A1.** Federated MeZO works on hybrid linear-attention LLMs (Qwen3.5-4B-Base) | Day 1 + 2×2 cross-arch grid | §5.1, §5.3 |
 | **A2.** 2D-torus, ring, complete topologies all converge; partition-tax of Dir(0.5) non-IID is <13% | Day 5 2×2 grid | §5.3 |
-| **A3.** Two new convergence theorems with full Lyapunov proofs: T3 (PL+heavy-ball+β-decay+clip) and T4 (DP extension) | Closed proofs in `docs/theory_rigorous.md` | §3.4, §6.5 (theory) |
+| **A3.** Two new convergence theorems with full Lyapunov proofs: T3 (PL+heavy-ball+β-decay+clip; first stability guarantee for ZO heavy-ball in the PL regime) and T4 (DP extension) | Closed proofs in `docs/theory_rigorous.md` | §4.5, §4.6 |
+| **A7.** ⭐ **D-MeZO-N v2 = combo (B1+B5) beats vanilla MeZO on loss at paper-scale** (Qwen3.5-4B-Base / MathLogicQA / 3 seeds paired): Δloss = −5.5% (3/3 same direction, paired $t=5.3$, $p<0.05$); lowest loss-std (0.010) across momentum methods. Acc +2.3pp reported for transparency, n.s. | 5-variant × 3-seed multi-seed run | §5.6.2 |
+| **A8.** D-MeZO-N v2 beats FedKSeed (Qin 2024) on loss 3/3 seeds in a paired head-to-head (FedKSeed at default $K=4096$, 500 rounds) | 3-method × 3-seed run | §6.5 |
 | **A4.** Per-round (ε=10, δ=10⁻³)-DP at ~6% utility cost on Qwen3.5-0.8B / MathLogicQA | 8 σ values × 2 seeds = 16 cells, frontier flat across σ ∈ [0.5, 50] | §6.7 |
 | **A5.** Communication cost: 1 scalar + 1 seed per client per round (~16 bytes), vs FedAvg's $O(d)$ | Algorithmic | §4 |
 | **A6.** ρ-clip threshold C provides natural L2 sensitivity bound for Gaussian DP mechanism (no extra mechanism needed) | Insight + empirical confirmation | §6.7 |
@@ -473,14 +555,14 @@ Six tiers ranked by evidence strength, separating what has been **solidly demons
 | Claim | Evidence | Caveat |
 |---|---|---|
 | **B1.** D-MeZO-N v1 rescues HellaSwag where vanilla diverges (+3.75pp acc on Qwen3-4B) | n=1 seed | Multi-seed pending; should not be over-claimed |
-| **B2.** D-MeZO-N v2 (B1+B5 combo) achieves vanilla parity on Qwen3.5-0.8B / MathLogicQA | n=2 seeds; paired CI [-0.10, 0.00] on Δacc includes zero | Borderline statistical |
-| **B3.** D-MeZO-N v2 may *outperform* vanilla at 4B scale (preliminary s=42: −7% loss, +3pp acc on Qwen3.5-4B-Base) | n=1 seed, mid-sweep | Awaiting s=43, s=44 to confirm |
+| **B2.** D-MeZO-N v2 (B1+B5 combo) achieves vanilla parity on Qwen3.5-0.8B / MathLogicQA (small-scale ablation) | n=2 seeds; paired CI [-0.10, 0.00] on Δacc includes zero | Superseded by the paper-scale A7 result (§5.6.2) |
 
 ### C. Empirically falsified (honest negatives — kept in paper)
 
 | Original claim | Falsification | Section |
 |---|---|---|
-| **C1.** "+1.25pp acc improvement over vanilla on MathLogicQA" | 3-seed paired CI [0.0, 0.0] | §5.6.1 (multi-seed) |
+| **C1.** "D-MeZO-N v1 (fixed $C=50$) beats vanilla on MathLogicQA" | 3-seed paired: 3/3 worse (+7.0% loss) | §5.6.1, §5.6.2 (multi-seed) |
+| **C1b.** "Drift-reset (B5) alone is sufficient" | 3-seed paired: 3/3 worse (+6.4% loss) | §5.6.2 |
 | **C2.** "True-Nesterov look-ahead accelerates" | Diverges 7× faster than heavy-ball (R20 vs R140) | §5.4 (Day 6b) |
 | **C3.** "K=3 multi-direction strictly improves" | Trade-off: loss +41.6% worse, acc +1.25pp better | §6.4 (MD ablation) |
 | **C4.** "Adaptive ε(t) autotuner beats Princeton ε=10⁻³" | Loses by 3-6× in downstream | §6.3 (ε autotuner) |
@@ -490,21 +572,21 @@ Six tiers ranked by evidence strength, separating what has been **solidly demons
 
 | Task | Status | ETA |
 |---|---|---|
-| **D1.** Combo at Qwen3.5-4B-Base / MathLogicQA / 3 seeds | Cell 5/15 of 15 complete; preliminary s=42 shows +3pp acc | ~7h remaining |
-| **D2.** Combo on HellaSwag rescue regime / Qwen3-4B / 3 seeds | Configured; awaiting Colab budget | After D1 |
-| **D3.** Combo + DP composition: D-MeZO-N v2 + ε=10 | Configured; awaiting Colab budget | After D2 |
+| **D1.** Combo on HellaSwag rescue regime / Qwen3-4B / 3 seeds | Configured; awaiting Colab budget (must confirm v2 does not re-introduce divergence) | — |
+| **D2.** Parity-tuned head-to-head vs FedKSeed (lr × β grid, 1000 rounds) | Default-hyperparameter run done (§6.5); tuned run pending | — |
+| **D3.** Combo + DP composition: D-MeZO-N v2 + ε=10 via RDP accountant | Configured; awaiting Colab budget | — |
 
 ### E. Honest framing for the strongest publishable claim
 
 Based on solidly-demonstrated tier A + theoretical contribution:
 
-> **D-MeZO-N is the first decentralized federated zeroth-order optimizer for LLM fine-tuning with (i) closed-form Lyapunov convergence proofs under PL + heavy-ball + β-decay + ρ-clipping (Theorem 3), (ii) formal per-round $(\varepsilon=10, \delta=10^{-3})$-DP guarantee via natural ρ-clip sensitivity bound at ~6% utility cost (Theorem 4 + §6.7), (iii) $\sim$$10^9 \times$ communication compression vs. FedAvg (1 scalar + 1 seed per round), and (iv) demonstrated convergence on hybrid linear-attention LLMs across complete / ring / non-IID-Dir(0.5) topologies.**
+> **D-MeZO-N v2 = combo (adaptive ρ-clip B1 + drift-reset B5) is the first decentralized federated zeroth-order optimizer for LLM fine-tuning with (i) a paper-scale multi-seed validated loss improvement over vanilla MeZO (Qwen3.5-4B-Base / MathLogicQA / 3 paired seeds: Δloss = −5.5%, 3/3 same direction, paired $t=5.3$, $p<0.05$; lowest loss-std across momentum methods), (ii) closed-form Lyapunov stability proofs under PL + heavy-ball + β-decay + ρ-clipping (Theorem 3 — the first such guarantee in the ZO-LLM setting), (iii) a formal per-round $(\varepsilon=10, \delta=10^{-3})$-DP guarantee via natural ρ-clip sensitivity bound at ~6% utility cost (Theorem 4 + §6.7), (iv) $\sim$$10^9 \times$ communication compression vs. FedAvg (1 scalar + 1 seed per round) plus independent per-client $z_i$ giving $1/n$ variance reduction on both noise components, and (v) demonstrated convergence on hybrid linear-attention LLMs across complete / ring / non-IID-Dir(0.5) topologies, beating FedKSeed on loss 3/3 seeds (§6.5).**
 
-What is **not** claimed (per tier C): asymptotic acceleration over vanilla MeZO, $O(1/T^2)$ rates, multi-direction strict improvement, accuracy gains beyond seed noise on convergent tasks. What is **not yet ready** (tier B/D): paper-scale validation of v2 vs vanilla, rescue-regime safety of combo.
+What is **not** claimed (per tier C): asymptotic acceleration over vanilla MeZO, $O(1/T^2)$ rates, multi-direction strict improvement, accuracy gains beyond seed noise on convergent tasks (the +2.3pp accuracy trend is reported for transparency only, paired $t \approx 0.8$, $p \approx 0.5$). What is **not yet ready** (tier B/D): rescue-regime safety of the v2 combo on HellaSwag, a parity-tuned FedKSeed comparison, and $T$-round DP composition via an RDP accountant.
 
 # 9. Conclusion
 
-We presented D-MeZO-N — Decentralized Federated MeZO with Nesterov-style acceleration — and established it as a viable peer-to-peer federated optimizer for LLM fine-tuning. Six contributions (C1–C6) cover novel architecture support, robustness to extreme non-IID, negligible topology cost, a working accelerated variant, two formal convergence theorems, and the first formal per-round DP guarantee for decentralized federated ZO on LLMs.
+We presented D-MeZO-N — Decentralized Federated MeZO with Nesterov-style **stabilization** — and established it as a viable peer-to-peer federated optimizer for LLM fine-tuning. Its eight contributions (C1–C8) cover novel hybrid-linear-attention architecture support, robustness to extreme non-IID, negligible topology cost, the **D-MeZO-N v2 (combo B1+B5)** recipe with a paper-scale multi-seed validated **loss** improvement over vanilla MeZO (Δloss = −5.5%, 3/3 seeds, paired $t=5.3$, $p<0.05$) and a 3/3-seed loss win over FedKSeed-at-default, four formal convergence theorems (T1–T4), and the first formal per-round $(\varepsilon=10,\delta=10^{-3})$-DP guarantee for decentralized federated ZO on LLMs. Theorem 3 is, to our knowledge, the first stability guarantee for ZO heavy-ball in the PL regime; its contraction rate matches plain SGD-under-PL — momentum is made *safe*, not *faster*, in the high-variance ZO regime. The accuracy trend (+2.3pp) is reported for transparency only and not claimed as a gain. Open directions: scaling to 100+ clients, multi-seed validation of the rescue regime, generative tasks, a parity-tuned FedKSeed comparison, and $T$-round DP composition via an RDP accountant with subsampling amplification.
 
 # References
 

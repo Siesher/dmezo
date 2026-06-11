@@ -23,7 +23,7 @@
 3. **16 байт на раунд на соседа** (вместо 8 ГБ у FedAvg)
 4. **С формальной (ε,δ)-DP гарантией** (compliance ready)
 5. **Со стабильным моментом** (heavy-ball + adaptive clip + drift-reset + β-decay)
-6. **С доказанной сходимостью** под Polyak-Łojasiewicz (Theorem 3 closes Princeton OP1)
+6. **С доказанной сходимостью** под Polyak-Łojasiewicz (Theorem 3 — первая гарантия устойчивости ZO heavy-ball в PL-режиме)
 
 **Главный научный вклад:** ни одна работа в литературе не совмещает все 6 одновременно. Каждый компонент существует отдельно — наш вклад в их **совместной работе** + проверенных теоремах + multi-seed empirical validation.
 
@@ -31,10 +31,10 @@
 
 | Метрика | vanilla MeZO | D-MeZO-N v2 (combo) | Δ |
 |---|---|---|---|
-| Loss (mean ± std) | 1.368 ± 0.018 | **1.293 ± 0.010** | **−5.5% (3/3 same direction)** |
-| Accuracy (mean) | 37.7% | **40.0%** | **+2.3pp** |
+| **Loss (mean ± std)** | 1.368 ± 0.018 | **1.293 ± 0.010** | **−5.5% (3/3 same direction, paired t = 5.3, p < 0.05)** |
+| Accuracy (mean) *(для прозрачности)* | 37.7% | 40.0% | +2.3pp mean — **не значимо** (n=3; per-seed {−1, +8, 0} pp; paired t ≈ 0.8, p ≈ 0.5; eval pool 100 примеров, SE ≈ 4.5pp) |
 
-Первое paper-scale multi-seed validated empirical improvement D-MeZO-N strictly over vanilla MeZO.
+Первое paper-scale multi-seed validated empirical improvement D-MeZO-N strictly over vanilla MeZO. **Headline = только loss** (статистически значимо); accuracy приводится для прозрачности и не заявляется как улучшение.
 
 ---
 
@@ -65,7 +65,7 @@
        │  + adaptive ρ-clip (B1) + drift-reset (B5)
        │  + β-decay 0.9→0
        │  + dual-use ρ-clip → Gaussian DP
-       │  + Theorem 3 (Lyapunov, closes Princeton OP1)
+       │  + Theorem 3 (Lyapunov, первая гарантия устойчивости ZO heavy-ball в PL-режиме)
        │  + Theorem 4 (DP extension)
        ▼
 2026  D-MeZO-N v2 (наш метод)
@@ -80,7 +80,7 @@
 
 **Что мы добавили сами:**
 - 4 техники: independent z_i per client, scalar heavy-ball для ZO, adaptive+drift-reset clip stack, dual-use clip для DP.
-- 4 теоремы: T1 (convex), T2 (PL no momentum), **T3 (PL+momentum, closes Princeton OP1)**, T4 (DP extension).
+- 4 теоремы: T1 (convex), T2 (PL no momentum), **T3 (PL+momentum, первая гарантия устойчивости ZO heavy-ball в PL-режиме)**, T4 (DP extension).
 
 ---
 
@@ -164,7 +164,7 @@ $v_t$ — **скаляр**, не вектор. Накапливает "сред�
 
 - **Storage:** $O(1)$ скаляр vs $O(d)$ vector у SGD-momentum или Adam-ZO. Сохраняет inference-level memory invariant.
 - **Logical fit для ZO:** в MeZO направление $z_t$ меняется каждый шаг → накапливать vector momentum бесполезно (orthogonal directions cancel). Scalar momentum накапливает только **magnitude**, а directionность даёт свежий $z_t$.
-- **Closes Princeton OP1:** Theorem 3 даёт closed-form Lyapunov convergence для heavy-ball ZO под PL — была открытая проблема в Malladi 2023.
+- **Первая гарантия устойчивости ZO heavy-ball (PL-режим):** Theorem 3 даёт closed-form Lyapunov convergence для heavy-ball ZO под PL — насколько известно авторам, первая такая гарантия в ZO-LLM постановке.
 
 > ⚠️ **Honest framing:** Theorem 3 даёт **тот же** rate как plain SGD под PL ($O((1-\eta\mu)^T)$). Bottou-Curtis-Nocedal 2018 T5.1 **запрещает** асимптотический speedup от momentum для stochastic non-convex с $\sigma > 0$. Наш вклад: **stability proven** (момент не ломает сходимость), не acceleration. Эмпирически наблюдаем transient speedup до R300 — это not contradicting BCN, это transient phenomenon.
 
@@ -328,7 +328,7 @@ $$\varepsilon_1 = \frac{C \sqrt{2 \ln(1.25/\delta)}}{\sigma}$$
 | **FedZeN** (Maritan 2024) | ✅ | ❌ | ✅ | Star | ❌ | ❌ | Convex Newton |
 | **DPZero** (Tang 2024) | ✅ | ✅ | ❌ | — | ❌ | ✅ centralized | Gaussian on ρ |
 | **DPZV** (2025) | ✅ | partial | Vertical | — | ❌ | ✅ | Vertical FL |
-| **D-MeZO-N v2 (наш)** | ✅ | ✅ | ✅ | **Gossip/P2P** | ✅ **HB scalar + adaptive clip + drift-reset + β-decay** | ✅ **dual-use clip** | **T1+T2+T3 (closes OP1)+T4** |
+| **D-MeZO-N v2 (наш)** | ✅ | ✅ | ✅ | **Gossip/P2P** | ✅ **HB scalar + adaptive clip + drift-reset + β-decay** | ✅ **dual-use clip** | **T1+T2+T3 (первая ZO HB гарантия в PL)+T4** |
 
 **Читать как:** ни одна работа не имеет ✅ во всех колонках одновременно, кроме нас. **Это и есть наша научная ниша.**
 
@@ -355,7 +355,7 @@ $$\varepsilon_1 = \frac{C \sqrt{2 \ln(1.25/\delta)}}{\sigma}$$
 ### 4. Convergence proof для heavy-ball ZO + PL + β-decay (Theorem 3)
 - arXiv:2303.16241 (2023) доказывает HB с biased approx gradient в general settings — не специфично ZO + PL + decentralized + clip + β-decay.
 - Наш Lyapunov $V_t = (L-L^\star) + (\eta/2)\|v\|^2$ — оригинальный contribution.
-- **Closes Princeton Open Problem 1.** ✓
+- **Первая гарантия устойчивости ZO heavy-ball в PL-режиме** (насколько известно авторам). Скорость сжатия (1−3ημ/2) не превосходит plain SGD под PL (1−2ημ) (Karimi et al. 2016), что согласовано с Bottou–Curtis–Nocedal 2018 Thm 5.1. Вклад — момент может быть безопасным (без расхождения) в высокодисперсном ZO-режиме. ✓
 
 ### 5. Dual-use ρ-clip
 - Same threshold $C$ одновременно для (a) momentum stability + (b) L2-sensitivity Gaussian mechanism.
@@ -392,7 +392,7 @@ $$\varepsilon_1 = \frac{C \sqrt{2 \ln(1.25/\delta)}}{\sigma}$$
 
 - **Multi-seed paired falsifies original v1 single-seed claim** (+1.25pp на MathLogicQA → 3/3 worse). Мы признаём это в paper §6.11. v2 (combo B1+B5) — это **корректное исправление** через multi-seed validation.
 - **Short-horizon SST-2 (200 rounds):** vanilla MeZO beats D-MeZO-N v2 в 3.4× loss. **Serious failure mode** при коротких runs. Combo нужен ≥500 rounds чтобы переиграть vanilla.
-- **Нет head-to-head comparison с FedKSeed** на одинаковом dataset/model — reviewer обязательно попросит. Script готов (`scripts/compare_fedkseed.py`), нужно ~6.75h Colab compute. Запланировано post-defense.
+- **Head-to-head с FedKSeed** (Qwen3.5-4B-Base / MathLogicQA / 3 seeds / 500 rounds / 4 clients): D-MeZO-N v2 beats FedKSeed по loss 3/3 seeds (1.334 ± 0.014 vs 1.466 ± 0.023) и beats vanilla MeZO по loss 3/3 seeds (vanilla 1.463 ± 0.023). Accuracy CI включают 0 при n=3 — не значимо. **Caveat:** FedKSeed запущен с дефолтными K=4096 гиперпараметрами без parity-tuned lr×β grid search; честное сравнение с tuned FedKSeed — future work. Данные: `head-to-head/summary.txt`.
 
 ### 5.3 Theoretical gaps
 
@@ -406,7 +406,7 @@ $$\varepsilon_1 = \frac{C \sqrt{2 \ln(1.25/\delta)}}{\sigma}$$
 ## §6. Defense one-liners — готовые ответы на ключевые вопросы
 
 ### Q1: "В чём именно ваша новизна по сравнению с MeZO?"
-> "MeZO — centralized без момента и DP. Мы добавили: (1) federated peer-to-peer wrapper с independent z_i per client → 1/n variance speedup по обеим компонентам шума, (2) scalar heavy-ball momentum со стабилизацией (adaptive clip + drift-reset + β-decay), (3) formal $(\varepsilon, \delta)$-DP через elegant dual-use clip mechanism, (4) Theorem 3 закрывает Princeton Open Problem 1 о momentum convergence под PL+ZO."
+> "MeZO — centralized без момента и DP. Мы добавили: (1) federated peer-to-peer wrapper с independent z_i per client → 1/n variance speedup по обеим компонентам шума, (2) scalar heavy-ball momentum со стабилизацией (adaptive clip + drift-reset + β-decay), (3) formal $(\varepsilon, \delta)$-DP через elegant dual-use clip mechanism, (4) Theorem 3 — первая гарантия устойчивости ZO heavy-ball в PL-режиме (Lyapunov $V_t$, скорость совпадает с plain SGD под PL)."
 
 ### Q2: "В чём отличие от FedKSeed?"
 > "FedKSeed — star topology + shared finite K-seed pool + no momentum + no DP. Мы — peer-to-peer gossip topology (любая doubly-stochastic W) + **independent seeds per client** (gossip-friendly, async-compatible) + heavy-ball scalar momentum со стабилизацией + formal $(\varepsilon, \delta)$-DP. Compression vs FedAvg одинаковая (~16 байт/раунд), но это **не** наша differentiation — наша differentiation в topology, momentum, и DP."
@@ -424,7 +424,7 @@ $$\varepsilon_1 = \frac{C \sqrt{2 \ln(1.25/\delta)}}{\sigma}$$
 > "Per-round free: clip $C$, который мы изначально ввели для momentum stability, одновременно служит L2-чувствительностью для Gaussian mechanism. Никакого second clipping pass. Empirically на Qwen3.5-4B-Base/MathLogicQA $\varepsilon=10$ стоит только +6.2% utility loss vs no-DP baseline. T-round composition — explicit limitation: $\varepsilon_T = O(\sqrt T \varepsilon_1)$ через RDP, бесполезно при $T=10^5$. Subsampling amplification — future work."
 
 ### Q7: "Почему v1 falsified, а v2 (combo) работает?"
-> "v1 (fixed C=50) был tuned на Qwen3-0.6B/SST-2 single seed. Multi-seed на Qwen3.5-4B-Base/MathLogicQA: median $|\hat\rho| \approx 180$ → fixed 50 обрезал большую часть полезного сигнала. B1 adaptive clip ($C_t = 1.3 \cdot \text{quantile}_{0.95}$) оседает в 165–270 на 4B — robust к outliers, не обрезает сигнал. B5 drift-reset добавляет surgical reset когда eval_loss drifts up. v2 = combo: −5.5% loss (3/3), +2.3pp acc, lowest std (0.010 vs 0.018 у vanilla). Это **корректная научная коррекция** через multi-seed validation, не failure."
+> "v1 (fixed C=50) был tuned на Qwen3-0.6B/SST-2 single seed. Multi-seed на Qwen3.5-4B-Base/MathLogicQA: median $|\hat\rho| \approx 180$ → fixed 50 обрезал большую часть полезного сигнала. B1 adaptive clip ($C_t = 1.3 \cdot \text{quantile}_{0.95}$) оседает в 165–270 на 4B — robust к outliers, не обрезает сигнал. B5 drift-reset добавляет surgical reset когда eval_loss drifts up. v2 = combo: **−5.5% loss (3/3, paired t=5.3, p<0.05)** — статистически значимо. Accuracy: +2.3pp mean, но paired t≈0.8, p≈0.5 (n=3, eval pool 100 примеров) — приводим для прозрачности, не заявляем как gain. Lowest loss std (0.010 vs 0.018 у vanilla). Это **корректная научная коррекция** через multi-seed validation, не failure."
 
 ### Q8: "А что если scale up до Qwen3-8B / n=8 clients?"
 > "Roadmap post-defense — yes. Scale-up Qwen3-8B + n=8 + Generative tasks (SAMSum, GSM8K) запланированы. Compute budget: ~30 units на Colab Pro+ Blackwell, готов запустить."
@@ -449,7 +449,7 @@ $$\varepsilon_1 = \frac{C \sqrt{2 \ln(1.25/\delta)}}{\sigma}$$
 | **β-decay 0.9→0** | Постепенно "доверяем меньше" моменту | Linear decay specifically для ZO momentum (vs const β у Polyak) |
 | **DP dual-use clip** | Same $C$ для stability + L2-sensitivity | **Elegant single-mechanism** (vs DP-SGD per-sample $O(d)$ clip) |
 | **Gossip topology** | Любая doubly-stochastic W | **First** gossip + ZO + LLM combination |
-| **Theorem 3** | Lyapunov $V_t = (L-L^\star) + (\eta/2)\|v\|^2$ | **Closes Princeton OP1** — momentum convergence под PL+ZO |
+| **Theorem 3** | Lyapunov $V_t = (L-L^\star) + (\eta/2)\|v\|^2$ | **Первая гарантия устойчивости ZO heavy-ball (PL-режим)** — момент безопасен, не ускоряет асимптотически |
 | **Theorem 4** | DP extension of T3 | First $(\varepsilon, \delta)$-DP convergence для decentralized fed ZO LLM |
 
 ---

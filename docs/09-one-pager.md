@@ -9,9 +9,11 @@
 | SST-2 | EN | Qwen3-4B + Qwen3.5 | converges | +6.5% loss reduction | **acceleration** (Day 8 R1d) |
 | BoolQ | EN | Qwen3-4B + Qwen3.5 | converges | matches | safe |
 | HellaSwag | EN | Qwen3-4B | **DIVERGES** (−2.5pp acc) | **+3.75pp acc** | **rescue** (2026-05-18) |
-| MathLogicQA | RU | Qwen3.5-4B-Base | converges (−49.7% loss) | **+1.25pp acc** | **safe-track** (2026-05-18) |
+| MathLogicQA | RU | Qwen3.5-4B-Base | converges (−49.7% loss) | ~~+1.25pp acc~~ → **falsified multi-seed** (3/3 worse loss; см. §22) | ~~safe-track~~ → **v1 falsified** (2026-05-21) |
 
-**Главное paper-утверждение:** D-MeZO-N v1 — **универсальный adaptive method**. Один и тот же recipe работает как acceleration (когда vanilla сходится медленно), rescue (когда vanilla расходится) и safe regularizer (когда vanilla уже сходится).
+> ⚠️ **Историческая таблица (single-seed, 2026-05-18).** Multi-seed валидация (3 paired seeds, 2026-05-21) **фальсифицировала** v1-результат на MathLogicQA: D-MeZO-N v1 (fixed C=50) 3/3 seeds хуже vanilla (+7.0% loss), Δacc final = 0.0. Актуальный headline — **D-MeZO-N v2 = combo (B1 adaptive clip + B5 drift-reset)**: loss 1.2926 ± 0.010 vs vanilla 1.3681 ± 0.018 (Δ = −5.5%, 3/3, paired t = 5.3, p < 0.05). См. `docs/multiseed_analysis.md` §22.
+
+**Главное paper-утверждение (обновлено 2026-06):** D-MeZO-N **v2 (combo)** — первое multi-seed validated улучшение над vanilla MeZO на paper-scale (loss-headline); v1-рецепт фальсифицирован и сохранён как honest negative.
 
 ---
 
@@ -184,6 +186,18 @@ Three mechanistic findings:
 
 **Practical recipe (D-MeZO-N v1):** β_0=0.9, β_end=0.0, ρ_clip=50, linear schedule. Это то, что мы запускаем в R1d (running).
 
+### 3.6 Head-to-head vs FedKSeed
+
+**Setup:** Qwen3.5-4B-Base / MathLogicQA / 4 клиента / 500 раундов / 3 seeds (42, 43, 44). D-MeZO-N v2 (combo B1+B5). Данные: `head-to-head/summary.txt`.
+
+| Вариант | Loss mean ± std | Acc mean ± std |
+|---|---|---|
+| vanilla MeZO | 1.463 ± 0.023 | 0.373 ± 0.031 |
+| **D-MeZO-N v2** | **1.334 ± 0.014** | 0.390 ± 0.037 |
+| FedKSeed (K=4096) | 1.466 ± 0.023 | 0.337 ± 0.033 |
+
+D-MeZO-N v2 бьёт FedKSeed по loss на 3/3 seeds и бьёт vanilla MeZO по loss на 3/3 seeds. Acc CI включают 0 при n=3 — не значимо. **Caveat:** FedKSeed запущен с дефолтными K=4096 гиперпараметрами без dedicated lr×β grid search; parity-tuned comparison — future work.
+
 ---
 
 ## 4. Contributions
@@ -214,7 +228,7 @@ Three mechanistic findings:
   $\mathbb E[\mathcal L(\bar\theta_T) - \mathcal L^\star] \le \tilde O\!\big(\sqrt{Lr(H)\Delta_0/(nT)}\big) + \tilde O\!\big(\rho_W^2 C^2 r(H)/((1-\bar\beta)^2 T)\big) + O(\epsilon^2 L^2 r(H))$.
 - ✅ **Theorem 2 (non-convex PL, no momentum) proven** в `docs/theory_rigorous.md` §2. Bound:
   $\mathbb E[L_T - L^\star] \le (1 - \eta\mu/2)^T \Delta_0 + 3\delta^2/(2\mu) + \eta C^2 r(H) \ell/(\mu n)$. $1/n$ federated speedup.
-- ✅ **Theorem 3 (PL + heavy-ball + clip + β-decay) PROVED** в `docs/theory_rigorous.md` §3. Lyapunov $V_t = (L_t - L^\star) + (\eta/2)\|v_t\|^2$ даёт $\mathbb{E}[V_T] \le (1 - 3\eta\mu/2)^T V_0 + 2G^2/(3\mu)$. **Closes Princeton Open Problem 1.** Rate matches plain SGD — asymptotic acceleration не заявляется.
+- ✅ **Theorem 3 (PL + heavy-ball + clip + β-decay) PROVED** в `docs/theory_rigorous.md` §3. Lyapunov $V_t = (L_t - L^\star) + (\eta/2)\|v_t\|^2$ даёт $\mathbb{E}[V_T] \le (1 - 3\eta\mu/2)^T V_0 + 2G^2/(3\mu)$. **Первая гарантия устойчивости ZO heavy-ball в PL-режиме** (насколько известно авторам). Rate matches plain SGD (Karimi et al. 2016) — asymptotic acceleration не заявляется (согласовано с Bottou–Curtis–Nocedal 2018 Thm 5.1). Наш вклад — момент можно сделать безопасным (без расхождения) в высокодисперсном ZO-режиме.
 - ✅ **Theorem 4 (DP extension of T3) proven** в `docs/theory_rigorous.md` §6.5. Per-round $\varepsilon_1 = C\sqrt{2\ln(1.25/\delta)}/\sigma$ через dual-use ρ-clip как L2-sensitivity. Эмпирически валидировано на σ-sweep (16 cells × 2 seeds, frontier flat).
 - ⚠️ **Look-ahead variant** — bound не выведен; эмпирически диверджит (dual-channel noise pathway).
 - C2 hypothesis testing (uniform-mixing vs ZO-noise-dominance) требует ablation против size-weighted aggregation (separate from main theorem).
