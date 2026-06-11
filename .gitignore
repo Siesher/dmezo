@@ -62,3 +62,19 @@ pytest-cache-files-*/
 
 # Private / personal drafts (not for public repo)
 docs/private/
+
+# Claude Code worktrees and backups (local-only)
+.claude/backups/
+.claude/worktrees/
+
+# Defense deck — published separately to lab repo, not to public dmezo
+presentation/
+
+# Head-to-head experiment outputs (raw runs)
+head-to-head/
+
+# Stray root-level artifacts (logs / scratch images / external PDFs)
+/*.pdf
+/vit_log*.csv
+/vit_results.png
+"/\320\221\320\265\320\267 \320\275\320\260\320\267\320\262\320\260\320\275\320\270\321\217.png"
