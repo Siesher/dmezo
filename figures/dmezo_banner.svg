@@ -3,171 +3,274 @@
   <title>D-MeZO-N — Decentralized Federated MeZO with Nesterov Stabilization</title>
 
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#0a0e27"/>
-      <stop offset="60%" stop-color="#15163d"/>
-      <stop offset="100%" stop-color="#1e1b4b"/>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%"   stop-color="#0a1024"/>
+      <stop offset="55%"  stop-color="#101631"/>
+      <stop offset="100%" stop-color="#1a1d3a"/>
     </linearGradient>
-    <linearGradient id="brand" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0%" stop-color="#A5B4FC"/>
-      <stop offset="55%" stop-color="#C4B5FD"/>
-      <stop offset="100%" stop-color="#818CF8"/>
+
+    <linearGradient id="frieren" x1="0" y1="0" x2="1" y2="0.2">
+      <stop offset="0%"   stop-color="#A7F3D0"/>
+      <stop offset="42%"  stop-color="#D1FAE5"/>
+      <stop offset="72%"  stop-color="#E2E8F0"/>
+      <stop offset="100%" stop-color="#C4B5FD"/>
     </linearGradient>
+
     <linearGradient id="curve" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0%" stop-color="#C4B5FD" stop-opacity="0.9"/>
-      <stop offset="100%" stop-color="#4F46E5" stop-opacity="0.95"/>
+      <stop offset="0%"   stop-color="#A7F3D0"/>
+      <stop offset="60%"  stop-color="#6EE7B7"/>
+      <stop offset="100%" stop-color="#C4B5FD"/>
     </linearGradient>
-    <radialGradient id="node-glow" cx="0.5" cy="0.5" r="0.5">
-      <stop offset="0%" stop-color="#C4B5FD" stop-opacity="0.6"/>
-      <stop offset="100%" stop-color="#4F46E5" stop-opacity="0"/>
+
+    <radialGradient id="halo" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0%"   stop-color="#A7F3D0" stop-opacity="0.55"/>
+      <stop offset="60%"  stop-color="#6EE7B7" stop-opacity="0.18"/>
+      <stop offset="100%" stop-color="#6EE7B7" stop-opacity="0"/>
     </radialGradient>
-    <filter id="soft" x="-20%" y="-20%" width="140%" height="140%">
-      <feGaussianBlur stdDeviation="2.4"/>
+
+    <radialGradient id="title-glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0%"   stop-color="#A7F3D0" stop-opacity="0.22"/>
+      <stop offset="100%" stop-color="#A7F3D0" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Frieren 4-point sparkle (use via <use transform="translate(x,y) scale(s)">) -->
+    <g id="spark">
+      <path d="M 0 -10 L 1.5 -1.5 L 10 0 L 1.5 1.5 L 0 10 L -1.5 1.5 L -10 0 L -1.5 -1.5 Z"
+            fill="#E2E8F0"/>
+    </g>
+
+    <g id="dot-star">
+      <circle r="1" fill="#CBD5E1"/>
+    </g>
+
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="2.4" result="b"/>
+      <feMerge>
+        <feMergeNode in="b"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
     </filter>
-    <pattern id="grid" x="0" y="0" width="32" height="32" patternUnits="userSpaceOnUse">
-      <path d="M 32 0 L 0 0 0 32" fill="none" stroke="#312e81" stroke-opacity="0.18" stroke-width="0.6"/>
-    </pattern>
   </defs>
 
-  <!-- Background -->
-  <rect width="1280" height="320" fill="url(#bg)"/>
-  <rect width="1280" height="320" fill="url(#grid)"/>
+  <!-- ===== BACKGROUND ===== -->
+  <rect width="1280" height="320" fill="url(#sky)"/>
 
-  <!-- =========== LEFT PANEL: P2P graph =========== -->
-  <g transform="translate(60, 70)">
-    <text x="0" y="-22" fill="#94A3B8" font-family="JetBrains Mono, monospace" font-size="13" letter-spacing="2">PEER-TO-PEER · n = 4</text>
+  <!-- Subtle starfield -->
+  <g fill="#CBD5E1" opacity="0.6">
+    <circle cx="80"   cy="34"  r="1"/>
+    <circle cx="240"  cy="20"  r="1.1"/>
+    <circle cx="380"  cy="40"  r="0.9"/>
+    <circle cx="510"  cy="24"  r="1"/>
+    <circle cx="640"  cy="42"  r="1.2"/>
+    <circle cx="770"  cy="26"  r="0.9"/>
+    <circle cx="900"  cy="38"  r="1"/>
+    <circle cx="1040" cy="22"  r="1.1"/>
+    <circle cx="1170" cy="36"  r="1"/>
+    <circle cx="125"  cy="288" r="1"/>
+    <circle cx="305"  cy="294" r="0.9"/>
+    <circle cx="475"  cy="284" r="1.1"/>
+    <circle cx="630"  cy="296" r="0.9"/>
+    <circle cx="810"  cy="288" r="1"/>
+    <circle cx="970"  cy="290" r="1.1"/>
+    <circle cx="1130" cy="284" r="1"/>
+  </g>
 
-    <!-- Edges (doubly-stochastic W mixing) -->
-    <g stroke="#818CF8" stroke-opacity="0.55" stroke-width="1.6" fill="none">
-      <line x1="50"  y1="50"  x2="220" y2="50"/>
-      <line x1="50"  y1="50"  x2="50"  y2="170"/>
-      <line x1="50"  y1="50"  x2="220" y2="170"/>
-      <line x1="220" y1="50"  x2="50"  y2="170"/>
-      <line x1="220" y1="50"  x2="220" y2="170"/>
-      <line x1="50"  y1="170" x2="220" y2="170"/>
+  <!-- ===== LEFT · MAGIC CIRCLE (P2P TOPOLOGY) ===== -->
+  <g transform="translate(170, 160)">
+
+    <!-- Top eyebrow caption -->
+    <text x="0" y="-118" text-anchor="middle"
+          font-family="Inter, system-ui, sans-serif" font-size="10" letter-spacing="4"
+          fill="#A7F3D0" fill-opacity="0.85">PEER · TO · PEER</text>
+
+    <!-- Outer rune ring -->
+    <circle r="96" fill="none" stroke="#6EE7B7" stroke-opacity="0.28" stroke-width="1"/>
+    <circle r="84" fill="none" stroke="#A7F3D0" stroke-opacity="0.30" stroke-width="0.7"
+            stroke-dasharray="2 7"/>
+    <circle r="72" fill="none" stroke="#C4B5FD" stroke-opacity="0.18" stroke-width="0.6"/>
+
+    <!-- Rune tick marks (12 directions, r=96 → r=88) -->
+    <g stroke="#A7F3D0" stroke-opacity="0.55" stroke-width="1">
+      <line x1="0"   y1="-96" x2="0"   y2="-88"/>
+      <line x1="48"  y1="-83" x2="44"  y2="-76"/>
+      <line x1="83"  y1="-48" x2="76"  y2="-44"/>
+      <line x1="96"  y1="0"   x2="88"  y2="0"/>
+      <line x1="83"  y1="48"  x2="76"  y2="44"/>
+      <line x1="48"  y1="83"  x2="44"  y2="76"/>
+      <line x1="0"   y1="96"  x2="0"   y2="88"/>
+      <line x1="-48" y1="83"  x2="-44" y2="76"/>
+      <line x1="-83" y1="48"  x2="-76" y2="44"/>
+      <line x1="-96" y1="0"   x2="-88" y2="0"/>
+      <line x1="-83" y1="-48" x2="-76" y2="-44"/>
+      <line x1="-48" y1="-83" x2="-44" y2="-76"/>
     </g>
 
-    <!-- Edge labels: 16 bytes -->
-    <g font-family="JetBrains Mono, monospace" font-size="9" fill="#A5B4FC" fill-opacity="0.7">
-      <text x="135" y="44" text-anchor="middle">(s, ρ)</text>
-      <text x="135" y="183" text-anchor="middle">16 B</text>
+    <!-- Cardinal node anchors at r=58 -->
+    <!-- Edges: full mesh (doubly-stochastic W) -->
+    <g stroke="url(#frieren)" stroke-width="1.3" fill="none" stroke-opacity="0.6">
+      <line x1="0"   y1="-58" x2="58"  y2="0"/>
+      <line x1="58"  y1="0"   x2="0"   y2="58"/>
+      <line x1="0"   y1="58"  x2="-58" y2="0"/>
+      <line x1="-58" y1="0"   x2="0"   y2="-58"/>
+      <line x1="0"   y1="-58" x2="0"   y2="58"/>
+      <line x1="-58" y1="0"   x2="58"  y2="0"/>
     </g>
 
-    <!-- Halo behind nodes -->
+    <!-- Node halos -->
     <g>
-      <circle cx="50"  cy="50"  r="32" fill="url(#node-glow)"/>
-      <circle cx="220" cy="50"  r="32" fill="url(#node-glow)"/>
-      <circle cx="50"  cy="170" r="32" fill="url(#node-glow)"/>
-      <circle cx="220" cy="170" r="32" fill="url(#node-glow)"/>
+      <circle cx="0"   cy="-58" r="22" fill="url(#halo)"/>
+      <circle cx="58"  cy="0"   r="22" fill="url(#halo)"/>
+      <circle cx="0"   cy="58"  r="22" fill="url(#halo)"/>
+      <circle cx="-58" cy="0"   r="22" fill="url(#halo)"/>
     </g>
 
-    <!-- Nodes (clients with independent z_i) -->
-    <g font-family="JetBrains Mono, monospace" font-size="12" font-weight="600" text-anchor="middle">
-      <circle cx="50"  cy="50"  r="14" fill="#1e1b4b" stroke="#C4B5FD" stroke-width="2"/>
-      <text   x="50"   y="54"   fill="#F1F5F9">z₁</text>
+    <!-- Nodes -->
+    <g font-family="Newsreader, Georgia, serif" font-size="11" font-weight="600" text-anchor="middle">
+      <circle cx="0"   cy="-58" r="10" fill="#0a1024" stroke="#A7F3D0" stroke-width="1.4"/>
+      <text   x="0"    y="-55"      fill="#F1F5F9">z₁</text>
 
-      <circle cx="220" cy="50"  r="14" fill="#1e1b4b" stroke="#A5B4FC" stroke-width="2"/>
-      <text   x="220"  y="54"   fill="#F1F5F9">z₂</text>
+      <circle cx="58"  cy="0"   r="10" fill="#0a1024" stroke="#A7F3D0" stroke-width="1.4"/>
+      <text   x="58"   y="3"        fill="#F1F5F9">z₂</text>
 
-      <circle cx="50"  cy="170" r="14" fill="#1e1b4b" stroke="#A5B4FC" stroke-width="2"/>
-      <text   x="50"   y="174"  fill="#F1F5F9">z₃</text>
+      <circle cx="0"   cy="58"  r="10" fill="#0a1024" stroke="#C4B5FD" stroke-width="1.4"/>
+      <text   x="0"    y="61"       fill="#F1F5F9">z₃</text>
 
-      <circle cx="220" cy="170" r="14" fill="#1e1b4b" stroke="#C4B5FD" stroke-width="2"/>
-      <text   x="220"  y="174"  fill="#F1F5F9">z₄</text>
+      <circle cx="-58" cy="0"   r="10" fill="#0a1024" stroke="#C4B5FD" stroke-width="1.4"/>
+      <text   x="-58"  y="3"        fill="#F1F5F9">z₄</text>
     </g>
 
-    <!-- Caption -->
-    <text x="135" y="215" text-anchor="middle" fill="#94A3B8" font-family="Newsreader, Georgia, serif" font-style="italic" font-size="12">
-      independent z_i  ⟹  1/n variance speedup
+    <!-- Center sparkle marker -->
+    <use href="#spark" transform="translate(0, 0) scale(0.6)" opacity="0.85"/>
+
+    <!-- Bottom caption inside-circle clearance: place at y=120 (=280 abs) -->
+    <text x="0" y="120" text-anchor="middle"
+          font-family="Newsreader, Georgia, serif" font-style="italic" font-size="11"
+          fill="#CBD5E1" fill-opacity="0.75">
+      independent z_i per client
     </text>
   </g>
 
-  <!-- =========== CENTER: Title =========== -->
-  <g transform="translate(380, 0)">
-    <!-- Title -->
-    <text x="260" y="120" text-anchor="middle"
-          font-family="Newsreader, Georgia, serif"
-          font-size="76" font-weight="600" letter-spacing="-1"
-          fill="url(#brand)">D-MeZO-N</text>
+  <!-- ===== CENTER · TITLE ===== -->
+  <g transform="translate(640, 0)">
 
-    <!-- Subtitle -->
-    <text x="260" y="158" text-anchor="middle"
-          font-family="Inter, system-ui, sans-serif"
-          font-size="15" letter-spacing="2.4" font-weight="500"
-          fill="#C4B5FD" fill-opacity="0.85">
-      DECENTRALIZED · FEDERATED · NESTEROV-STABILIZED
+    <!-- Soft glow behind title -->
+    <ellipse cx="0" cy="135" rx="240" ry="60" fill="url(#title-glow)"/>
+
+    <!-- Decorative sparkles flanking title -->
+    <use href="#spark" transform="translate(-231, 117) scale(0.70)" opacity="0.95"/>
+    <use href="#spark" transform="translate(-253, 162) scale(0.45)" opacity="0.70"/>
+    <use href="#spark" transform="translate(-74,  90)  scale(0.35)" opacity="0.60"/>
+    <use href="#spark" transform="translate( 82,  204) scale(0.35)" opacity="0.60"/>
+    <use href="#spark" transform="translate( 244, 112) scale(0.55)" opacity="0.85"/>
+    <use href="#spark" transform="translate( 265, 165) scale(0.70)" opacity="0.95"/>
+
+    <!-- Top eyebrow -->
+    <text x="0" y="78" text-anchor="middle"
+          font-family="Inter, system-ui, sans-serif" font-size="11" letter-spacing="6"
+          fill="#A7F3D0" fill-opacity="0.85">
+      ZEROTH · ORDER · GRIMOIRE
     </text>
 
-    <!-- MeZO core formula -->
-    <g transform="translate(260, 210)" text-anchor="middle"
-       font-family="Newsreader, Georgia, serif" fill="#E0E7FF" font-style="italic">
-      <text x="-115" y="0" font-size="26">ĝ</text>
-      <text x="-92"  y="0" font-size="26">=</text>
-      <!-- Fraction -->
-      <text x="0"    y="-12" font-size="22">L(θ+εz) − L(θ−εz)</text>
-      <line x1="-104" y1="0" x2="104" y2="0" stroke="#A5B4FC" stroke-width="1.5"/>
-      <text x="0"    y="20"  font-size="22">2ε</text>
-      <text x="124"  y="0"  font-size="26">·</text>
-      <text x="142"  y="0"  font-size="26">z</text>
-    </g>
+    <!-- Title -->
+    <text x="0" y="158" text-anchor="middle"
+          font-family="Newsreader, Georgia, 'Times New Roman', serif"
+          font-size="82" font-weight="500" letter-spacing="-1"
+          fill="url(#frieren)" filter="url(#glow)">D-MeZO-N</text>
 
-    <!-- Pill: theorem badge -->
-    <g transform="translate(260, 262)">
-      <rect x="-150" y="-16" width="300" height="32" rx="16"
-            fill="#4F46E5" fill-opacity="0.16" stroke="#818CF8" stroke-opacity="0.55"/>
-      <text x="0" y="5" text-anchor="middle"
-            font-family="JetBrains Mono, monospace" font-size="12"
-            fill="#C4B5FD" letter-spacing="1.2">
-        T3 · closes Princeton Open Problem 1
+    <!-- Underline -->
+    <line x1="-150" y1="174" x2="150" y2="174" stroke="#A7F3D0" stroke-opacity="0.45" stroke-width="0.8"/>
+
+    <!-- Subtitle -->
+    <text x="0" y="196" text-anchor="middle"
+          font-family="Inter, system-ui, sans-serif" font-size="12" letter-spacing="4" font-weight="500"
+          fill="#E2E8F0" fill-opacity="0.88">
+      DECENTRALIZED  ·  FEDERATED  ·  NESTEROV-STABILIZED
+    </text>
+
+    <!-- Tagline -->
+    <text x="0" y="224" text-anchor="middle"
+          font-family="Newsreader, Georgia, serif" font-style="italic" font-size="14"
+          fill="#CBD5E1" fill-opacity="0.85">
+      «Лучший градиент — тот, который ты не считал.»
+    </text>
+
+    <!-- Theorem pill -->
+    <g transform="translate(0, 258)">
+      <rect x="-148" y="-13" width="296" height="26" rx="13"
+            fill="#6EE7B7" fill-opacity="0.10"
+            stroke="#A7F3D0" stroke-opacity="0.55" stroke-width="0.8"/>
+      <text x="0" y="4" text-anchor="middle"
+            font-family="Inter, system-ui, sans-serif" font-size="10.5"
+            fill="#A7F3D0" letter-spacing="2.5">
+        T3 · CLOSES PRINCETON OPEN PROBLEM 1
       </text>
     </g>
   </g>
 
-  <!-- =========== RIGHT PANEL: Lyapunov decay =========== -->
-  <g transform="translate(940, 70)">
-    <text x="0" y="-22" fill="#94A3B8" font-family="JetBrains Mono, monospace" font-size="13" letter-spacing="2">LYAPUNOV  Vₜ ↘  (1 − 3ημ/2)ᵀ</text>
+  <!-- ===== RIGHT · LYAPUNOV DECAY ===== -->
+  <g transform="translate(990, 75)">
 
-    <!-- Plot area -->
-    <rect x="0" y="0" width="280" height="180" fill="#0f1233" fill-opacity="0.55" rx="6" stroke="#312e81" stroke-opacity="0.5"/>
+    <text x="0" y="-12"
+          font-family="Inter, system-ui, sans-serif" font-size="10.5" letter-spacing="3"
+          fill="#A7F3D0" fill-opacity="0.85">LYAPUNOV  Vₜ ↘  (1 − 3ημ/2)ᵀ</text>
 
-    <!-- Y axis -->
-    <line x1="0" y1="0" x2="0" y2="180" stroke="#475569" stroke-width="1"/>
-    <text x="-8" y="6"   fill="#94A3B8" font-family="JetBrains Mono, monospace" font-size="10" text-anchor="end">V₀</text>
-    <text x="-8" y="180" fill="#94A3B8" font-family="JetBrains Mono, monospace" font-size="10" text-anchor="end">0</text>
+    <!-- Plot frame -->
+    <rect x="0" y="0" width="240" height="155" rx="6"
+          fill="#0a1024" fill-opacity="0.45"
+          stroke="#A7F3D0" stroke-opacity="0.20" stroke-width="0.8"/>
 
-    <!-- X axis -->
-    <line x1="0" y1="180" x2="280" y2="180" stroke="#475569" stroke-width="1"/>
-    <text x="0"   y="200" fill="#94A3B8" font-family="JetBrains Mono, monospace" font-size="10">0</text>
-    <text x="280" y="200" fill="#94A3B8" font-family="JetBrains Mono, monospace" font-size="10" text-anchor="end">T</text>
+    <!-- Gridlines -->
+    <g stroke="#A7F3D0" stroke-opacity="0.08" stroke-width="0.6">
+      <line x1="0"  y1="38"  x2="240" y2="38"/>
+      <line x1="0"  y1="77"  x2="240" y2="77"/>
+      <line x1="0"  y1="116" x2="240" y2="116"/>
+      <line x1="60"  y1="0" x2="60"  y2="155"/>
+      <line x1="120" y1="0" x2="120" y2="155"/>
+      <line x1="180" y1="0" x2="180" y2="155"/>
+    </g>
 
-    <!-- Noise floor line -->
-    <line x1="0" y1="148" x2="280" y2="148" stroke="#94A3B8" stroke-width="1" stroke-dasharray="3,4" stroke-opacity="0.55"/>
-    <text x="285" y="152" fill="#94A3B8" font-family="JetBrains Mono, monospace" font-size="10">2G²/3μ</text>
+    <!-- Axis labels -->
+    <text x="-6"  y="8"   text-anchor="end" fill="#94A3B8" font-family="Inter, sans-serif" font-size="10">V₀</text>
+    <text x="-6"  y="155" text-anchor="end" fill="#94A3B8" font-family="Inter, sans-serif" font-size="10">0</text>
+    <text x="0"   y="172" fill="#94A3B8" font-family="Inter, sans-serif" font-size="10">round 0</text>
+    <text x="240" y="172" text-anchor="end" fill="#94A3B8" font-family="Inter, sans-serif" font-size="10">T</text>
 
-    <!-- Glow under curve -->
-    <path d="M 0 6 C 70 6, 90 30, 130 80 S 220 142, 280 148 L 280 180 L 0 180 Z"
-          fill="url(#curve)" fill-opacity="0.18"/>
+    <!-- Noise-floor dashed -->
+    <line x1="0" y1="128" x2="240" y2="128"
+          stroke="#CBD5E1" stroke-width="0.8" stroke-dasharray="3 5" stroke-opacity="0.55"/>
+    <text x="237" y="124" text-anchor="end"
+          font-family="Inter, sans-serif" font-size="9.5" fill="#CBD5E1" fill-opacity="0.7">
+      2G²⁄3μ
+    </text>
 
-    <!-- Decay curve -->
-    <path d="M 0 6 C 70 6, 90 30, 130 80 S 220 142, 280 148"
-          fill="none" stroke="url(#curve)" stroke-width="3" stroke-linecap="round"/>
+    <!-- Vanilla baseline -->
+    <path d="M 0 8 C 55 14, 95 50, 150 90 S 220 145, 240 150"
+          fill="none" stroke="#94A3B8" stroke-width="1.4"
+          stroke-dasharray="3 5" stroke-opacity="0.7"/>
 
-    <!-- Vanilla MeZO baseline (slower) -->
-    <path d="M 0 6 C 100 10, 150 40, 230 90 S 280 160, 280 165"
-          fill="none" stroke="#64748B" stroke-width="1.6" stroke-dasharray="2,5" stroke-opacity="0.7"/>
+    <!-- Glow under v2 curve -->
+    <path d="M 0 8 C 45 8, 65 26, 100 65 S 190 124, 240 128 L 240 155 L 0 155 Z"
+          fill="url(#curve)" fill-opacity="0.13"/>
+
+    <!-- v2 curve -->
+    <path d="M 0 8 C 45 8, 65 26, 100 65 S 190 124, 240 128"
+          fill="none" stroke="url(#curve)" stroke-width="2.6" stroke-linecap="round"/>
+
+    <!-- Endpoint sparkle -->
+    <use href="#spark" transform="translate(240, 128) scale(0.50)" opacity="0.95"/>
 
     <!-- Legend -->
-    <g font-family="Inter, system-ui, sans-serif" font-size="11">
-      <line x1="155" y1="22" x2="173" y2="22" stroke="url(#curve)" stroke-width="3"/>
-      <text x="178" y="26" fill="#C4B5FD">D-MeZO-N v2</text>
-      <line x1="155" y1="40" x2="173" y2="40" stroke="#64748B" stroke-width="1.6" stroke-dasharray="2,5"/>
-      <text x="178" y="44" fill="#94A3B8">vanilla MeZO</text>
+    <g font-family="Inter, system-ui, sans-serif" font-size="10">
+      <line x1="135" y1="14" x2="153" y2="14" stroke="url(#curve)" stroke-width="2.4"/>
+      <text x="158" y="18" fill="#A7F3D0">D-MeZO-N v2</text>
+      <line x1="135" y1="30" x2="153" y2="30" stroke="#94A3B8" stroke-width="1.4" stroke-dasharray="3 5"/>
+      <text x="158" y="34" fill="#94A3B8">vanilla MeZO</text>
     </g>
   </g>
 
-  <!-- =========== Bottom credit strip =========== -->
-  <g font-family="JetBrains Mono, monospace" font-size="11" letter-spacing="2">
-    <text x="60"   y="305" fill="#64748B">FORWARD-ONLY · 16 BYTES/ROUND · (ε,δ)-DP</text>
-    <text x="1220" y="305" text-anchor="end" fill="#64748B">github.com/Siesher/dmezo</text>
+  <!-- ===== BOTTOM CREDIT STRIP ===== -->
+  <g font-family="Inter, system-ui, sans-serif" font-size="10" letter-spacing="2.5">
+    <text x="60"   y="312" fill="#64748B">FORWARD-ONLY · 16 BYTES/ROUND · (ε,δ)-DP</text>
+    <text x="1220" y="312" text-anchor="end" fill="#64748B">github.com/Siesher/dmezo</text>
   </g>
 </svg>
