@@ -169,6 +169,18 @@ $$\mathbb{E}\!\left[\frac{1}{n}\sum_i \|\theta_i^t - \bar\theta_t\|^2\right] \le
 
 **Доказательство:** свойство $W$ — $\|WX - \mathbf{1}\bar X^\top\|_F \le \rho_W \|X - \mathbf{1}\bar X^\top\|_F$. Применение к $\Theta_{t+1} = W(\Theta_t - \eta V_{t+1})$ + geometric series по spectral gap + momentum amplification из Lemma 2 на per-client $G^2$. (Полный proof — Koloskova 2020 Lemma 3 + adaption через Lemma 2.)
 
+**Вывод множителя $1/(1-\bar\beta)^2$ (momentum amplification).**
+
+Momentum buffer накапливает прошлые обновления с коэффициентом $\bar\beta$:
+$$v_t = \sum_{k=0}^{t} \bar\beta^{t-k}\, \tilde g_k.$$
+
+Среднеквадратичная норма при i.i.d. $\tilde g_k$ с $\mathbb{E}\|\tilde g_k\|^2 \le G^2$:
+$$\mathbb{E}\|v_t\|^2 \le G^2 \sum_{k=0}^{t} \bar\beta^{2(t-k)} \le \frac{G^2}{1 - \bar\beta^2} \le \frac{G^2}{(1-\bar\beta)^2}.$$
+
+Последнее неравенство: $1-\bar\beta^2 = (1-\bar\beta)(1+\bar\beta) \ge (1-\bar\beta)^2$ при $\bar\beta \le 1$. Именно эта геометрическая сумма $\sum_k \bar\beta^{2k} = 1/(1-\bar\beta^2)$ порождает множитель $1/(1-\bar\beta)^2$ в consensus-error bounds.
+
+Base case $\bar\beta = 0$ (no momentum) — Koloskova 2020 Lemma 3; adaption к $\bar\beta > 0$ — вышеуказанный geometric-series аргумент.
+
 ### Lemma 5 — Геометрическая сумма
 
 **Постановка.** Неотрицательная последовательность $(a_t)$ с $a_{t+1} \le (1-q)a_t + b$, $q \in (0,1)$, $b \ge 0$. Тогда:
@@ -331,7 +343,9 @@ $n$ клиентов, mixing $W$ с $\rho_W < 1$. Каждый $L_i$ convex и $
 
 ### Утверждение
 
-При $\eta \le \min(1/(\ell r(H)), 1/\sqrt{T})$ и $C \ge 2\|\nabla L\|_{\max} + \epsilon\ell\sqrt{r(H)}$:
+При $\eta \le \min(1/(\ell r(H)),\, \sqrt{n/T})$ и $C \ge 2\|\nabla L\|_{\max} + \epsilon\ell\sqrt{r(H)}$:
+
+> **Замечание о допустимом шаге.** Оптимальный шаг $\eta^* = \sqrt{D_0 n / (C^2 r(H) \ell T)} \sim \sqrt{n/T}$ и для $n > 1$ превышает $1/\sqrt{T}$; замена верхней границы на $\sqrt{n/T}$ обеспечивает допустимость $\eta^*$.
 $$\boxed{\quad \mathbb{E}[L(\hat\theta_T) - L^\star] \le \tilde O\!\left(\sqrt{\frac{\ell r(H) D_0}{n T}}\right) + \tilde O\!\left(\frac{\rho_W^2 C^2 r(H)}{(1-\bar\beta)^2 T}\right) + O(\epsilon^2 \ell^2 r(H)) \quad}$$
 
 где $D_0 = \|\bar\theta_0 - \theta^\star\|^2$, $\bar\beta = \beta_0/2$.
@@ -480,9 +494,13 @@ $$\sigma_{\text{crossover}} \sim 50 \sqrt{10^2/10^9} = 50 \cdot 10^{-3.5} \appro
 ### Theorem 4a — Convergence under DP-noise
 
 **Утверждение.** Под предположениями T3 + DP-noise $\xi_t \sim \mathcal{N}(0, \sigma^2)$ i.i.d., при $\eta \le (1-\beta_0^2)/(8\ell)$:
-$$\boxed{\quad \mathbb{E}[V_T] \le \bigl(1 - \tfrac{3\eta\mu}{2}\bigr)^T V_0 + \frac{2(C^2 + \sigma^2) d \ell}{3\mu}. \quad}$$
+$$\boxed{\quad \mathbb{E}[V_T] \le \bigl(1 - \tfrac{3\eta\mu}{2}\bigr)^T V_0 + \frac{2(C^2 r(H) + \sigma^2 d)\,\ell}{3\mu}. \quad}$$
 
-**Доказательство.** Прямая подстановка $G^2_{\text{DP}} = (C^2 + \sigma^2) d \ell$ из Lemma 8 в Theorem 3:
+> **При $\sigma = 0$ граница точно редуцируется к Theorem 3** (noise floor $2C^2 r(H)\ell/(3\mu)$).
+
+**Доказательство.** Прямая подстановка $G^2_{\text{DP}} = (C^2 r(H) + \sigma^2 d)\,\ell$ из Lemma 8 combined bound (строка «Combined bound для descent inequality», $\mathbb{E}[\tilde g^\top H_* \tilde g] \le C^2 r(H)\ell + \sigma^2 d\ell$) в Theorem 3.
+
+> *Поправка к группировке.* Raw Euclidean bound из Lemma 8 даёт $(C^2 + \sigma^2)d$. В descent inequality (через $H$-weighted квадратичную форму) clip-component редуцируется до $C^2 r(H)\ell$, тогда как DP-noise остаётся изотропным с $\sigma^2 d\ell$. Запись $(C^2 + \sigma^2)d\ell$ в box — ошибочная группировка.
 $$\mathbb{E}[V_T] \le (1 - 3\eta\mu/2)^T V_0 + \frac{2 G^2_{\text{DP}}}{3\mu}. \quad \square$$
 
 **Следствие (utility cost of privacy).** Steady-state noise floor увеличивается:
@@ -518,9 +536,11 @@ $$\varepsilon_T^{\text{advanced}} \approx \sqrt{400 \cdot 6.9} \cdot 10 + 200 \c
 
 Advanced composition useful only для **малых ε₁** (~0.1-1), где $e^{\varepsilon_1} - 1 \approx \varepsilon_1$.
 
-**(iii) RDP / moments accountant (Mironov 2017, Abadi 2016).** Намного tighter via Rényi divergence. Gaussian mechanism с σ: $(\alpha, \alpha/(2\sigma^2))$-RDP. После $T$ rounds: $(\alpha, T\alpha/(2\sigma^2))$-RDP. Conversion to (ε, δ)-DP:
-$$\varepsilon_T^{\text{RDP}} = \frac{T \alpha}{2 \sigma^2} + \frac{\ln(1/\delta)}{\alpha - 1}.$$
-Optimal $\alpha$ minimizes; для нашего setup даёт **более tight** bound but still $O(\sqrt{T})$ scaling.
+**(iii) RDP / moments accountant (Mironov 2017, Abadi 2016).** Намного tighter via Rényi divergence. Gaussian mechanism с σ и L2-sensitivity $C$: $(\alpha,\, \alpha C^2/(2\sigma^2))$-RDP. После $T$ rounds: $(\alpha,\, T\alpha C^2/(2\sigma^2))$-RDP. Conversion to (ε, δ)-DP:
+$$\varepsilon_T^{\text{RDP}} = \frac{T \alpha C^2}{2 \sigma^2} + \frac{\ln(1/\delta)}{\alpha - 1}.$$
+Optimal $\alpha$ minimizes; для нашего setup даёт **более tight** bound but still $O(\sqrt{T})$ scaling in the RDP-to-DP conversion step.
+
+> **Честная оговорка о composition.** Advanced composition ($O(\varepsilon_1\sqrt{T \ln(1/\delta')})$ scaling) даёт осмысленную экономию **только** в режиме $\varepsilon_1 \ll 1$: при $\varepsilon_1 = 10$ член $T\varepsilon_1(e^{\varepsilon_1}-1)$ взрывается (≈$10^7$ для $T=200$) и основная composition ($T\varepsilon_1$) доминирует. Для достижения полезного суммарного бюджета через RDP/advanced-composition необходимо $\varepsilon_1 < 1$ на раунд (т.е. более высокий $\sigma$), что переводит задачу в режим с реальными потерями utility. Полный RDP-accountant анализ в этом режиме — направление будущей работы.
 
 **Subsampling amplification (Abadi 2016 "Moments Accountant").** If each round samples $q$-fraction of data (mini-batching), per-step ε reduces by factor $q$. Doesn't directly apply to D-MeZO-N (full-batch MeZO) — but **trivially adopted** if MeZO uses random mini-batches per round.
 

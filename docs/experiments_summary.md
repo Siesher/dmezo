@@ -30,7 +30,7 @@
 | ε downstream validation | §6.7 / fig11-12 | same | 100 steps MeZO at multiple ε, eval@clean θ | 🟢 | Princeton 1e-3 **wins** by 3-6× on both archs |
 | ε schedule (vanilla) | §6.7 / fig13-14 | Qwen3-0.6B + Qwen3.5-0.8B | 5 log-linear schedules × 100 steps | 🟢 | Warmup loses 16+ cells; refine-below ties const on full-attn, beats on hybrid (+4.2pp) |
 | ε schedule (D-MeZO-N) | §6.7 / fig15 | Qwen3-0.6B + Qwen3-1.7B | 3 schedules × {vanilla, dmezo_n} | 🟢 | Same ε(t) ordering preserved under momentum + clip |
-| Richardson 4-pt | §6.7 supplement / fig17 | Qwen3-0.6B + Qwen3.5-0.8B | 2-pt vs 4-pt step-eq + compute-eq | 🔴 | Doesn't rescue large ε; narrow sweet spot at ε≈3e-3 (+4.5pp full-attn) |
+| Richardson 4-pt | §6.7 supplement / fig17 | Qwen3-0.6B + Qwen3.5-0.8B | 2-pt vs 4-pt step-eq + compute-eq | 🔴 | Doesn't rescue large ε; narrow sweet spot at ε≈3e-3 (+4.5pp acc full-attn from run logs; archived JSON stores losses only — verified loss effect −8.1% at ε≈3e-3 vs 2-pt on Qwen3-0.6B) |
 | 6-pt Romberg | §6.7 supplement / fig17 | Qwen3.5-0.8B | 2-pt vs 4-pt vs 6-pt | 🔴 | 6-pt dominated by 4-pt dominated by 2-pt at Princeton ε |
 
 ## Joint sweep (§6.8 — 2026-05-19)

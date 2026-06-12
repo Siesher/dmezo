@@ -400,12 +400,12 @@ DP-sweep на $\sigma \in \{0.5, 2, 5, 10, 19, 50\}$ показал: все loss
 
 ### 9.2 ⚠️ Multi-seed falsification
 
-Multi-seed §22 (Qwen3.5-4B-Base/MathLogicQA/3 seeds paired):
+Multi-seed §22 (Qwen3.5-4B-Base/MathLogicQA/3 seeds paired — FINALIZED):
 
-| Variant | Mean loss (2 seeds) | Δ vs vanilla |
+| Variant | Mean loss (3 seeds) | Δ vs vanilla |
 |---|---|---|
-| vanilla MeZO | 1.359 | reference |
-| **D-MeZO-N v1 (fixed C=50)** | **1.458** | **+7.3% loss** |
+| vanilla MeZO | 1.368 | reference |
+| **D-MeZO-N v1 (fixed C=50)** | **1.463** | **+7.0% loss** |
 
 v1 robustly **уступает** vanilla на 4B. Initial single-seed claim falsified.
 
@@ -435,11 +435,11 @@ Empirically (logs §22): $C_t$ оседает в районе 165–270 на 4B 
 - **v1 (fixed C=50)** — robustly **проигрывает** vanilla на 3/3 seeds (+7.0% loss). Falsified.
 - **B5 alone** — тоже robustly **проигрывает** (+6.4% loss). Drift-reset без adaptive clip бесполезен.
 - **B1 alone (adaptive clip)** — winning loss на 3/3 (−5.1%), но acc seed-specific: +3pp/−3pp/+4pp.
-- **v2 = combo (B1+B5)** — winning loss на 3/3 (−5.5%), plus mean **+2.3pp acc** (−1/+8/0 pp). **Lowest std loss across seeds** (0.010 vs 0.021 у B1 alone) — combo более **stable**.
+- **v2 = combo (B1+B5)** — winning loss на 3/3 (−5.5%), plus mean **+2.3pp acc** (−1/+8/0 pp). **Lowest std loss among the variants that improve on vanilla** (combo 0.010 vs B1 alone 0.021; drift-only has std 0.0035 but is uniformly worse) — combo более **stable** among improvements.
 
 **Mechanism — почему combo > B1 alone:** drift-reset fires 54 раза total на 3 seeds (≈18 per seed). На s=43 без drift-reset trajectory adaptive_clip имеет поздний uptick (R600=1.309 → R1000=1.314); combo держит ниже (R600=1.286 → R1000=1.295). На s=44 effect tighter но direction consistent.
 
-**Это первое paper-scale multi-seed валидированное D-MeZO-N strictly улучшающее vanilla MeZO** — 3-seed paired Δ loss мean −5.5%, direction 3/3 same, lowest std across семейства методов с моментом.
+**Это первое paper-scale multi-seed валидированное D-MeZO-N strictly улучшающее vanilla MeZO** — 3-seed paired Δ loss mean −5.5%, direction 3/3 same, lowest std among variants that improve on vanilla (combo 0.010 vs adaptive-clip-alone 0.021; drift-only's smaller std 0.0035 reflects uniform failure at higher loss, not stability of a good solution).
 
 **v1 → B1 alone → combo — пример корректной научной коррекции:** false positive v1 (single-seed Day 8 R1d) → multi-seed falsified → диагностика "C=50 too tight для 4B" → B1 (adaptive) → multi-seed уже wins loss но acc seed-varies → добавили B5 → combo robustly wins loss + average acc gain + lowest std.
 
@@ -565,7 +565,7 @@ Empirically (logs §22): $C_t$ оседает в районе 165–270 на 4B 
 
 1. **Federated wrapper** — 16 байт/раунд через **independent z_i + scalar ρ передача** (peer-to-peer, не star).
 2. **D-MeZO-N v1** — fixed clip + heavy-ball + β-decay даёт Lyapunov-сходимость T3. Closes Princeton OP1.
-3. **D-MeZO-N v2** = combo (adaptive clip B1 + drift-reset B5) — **beats vanilla на paper-scale по обеим метрикам** (Qwen3.5-4B-Base/MathLogicQA/2 seeds): Δ loss = −5.3%, Δ acc = +3.5pp, direction 2/2 на обеих метриках.
+3. **D-MeZO-N v2** = combo (adaptive clip B1 + drift-reset B5) — **beats vanilla на paper-scale по loss** (Qwen3.5-4B-Base/MathLogicQA/3 seeds finalized): Δ loss = −5.5%, direction 3/3 same; Δ acc = +2.3pp mean (n.s., transparency-only — not statistically significant at n=3).
 4. **DP-MeZO** — ρ-clip dual-use: stability + L2-sensitivity → first formal (ε=10, δ=10⁻³)-DP для decentralized federated ZO на LLM.
 5. **Theorem 3** — momentum convergence proof closes Princeton OP1.
 6. **Theorem 4** — DP extension with honest limitation про T-round composition.
@@ -581,7 +581,7 @@ Empirically (logs §22): $C_t$ оседает в районе 165–270 на 4B 
 >
 > **Math:** 4 теоремы (T1 convex, T2 PL, T3 momentum closes Princeton OP1, T4 DP extension).
 >
-> **Result:** на Qwen3.5-4B-Base/MathLogicQA D-MeZO-N v2 beats vanilla MeZO на 6.2% loss, +2pp acc (2 seeds paired). Plus formal (ε=10, δ=10⁻³)-DP per-round с ~6% utility cost. Plus $10^9$× compression vs FedAvg.
+> **Result:** на Qwen3.5-4B-Base/MathLogicQA D-MeZO-N v2 beats vanilla MeZO на 5.5% loss (3/3 seeds, finalized), +2.3pp acc mean (n.s., transparency-only). Plus formal (ε=10, δ=10⁻³)-DP per-round с ~6% utility cost. Plus ≈ 5×10⁸× compression vs FedAvg.
 >
 > **Honesty:** 5 originally hypothesized claims falsified through multi-seed evaluation — это признак серьёзного research.
 

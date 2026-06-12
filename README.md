@@ -164,10 +164,10 @@ dmezo/
 | Метод | Per-round per-client | Для 4B-модели × 1000 раундов × 4 клиентов |
 |--|--|--|
 | FedAvg | 8 GB (bf16 weights) | ≈ 32 TB |
-| FedKSeed (K = 4096 seeds + ρ) | ≈ 18 KB | ≈ 72 MB |
+| FedKSeed (K = 4096, static seed pool) | < 18 KB (reported в Qin et al. 2024: 4096 скаляров float32 + overhead; pool передаётся один раз) | ≈ 72 MB |
 | **D-MeZO-N (`update_share`)** | **16 байт (1 float + 1 int)** | **≈ 64 KB** |
 
-D-MeZO-N достигает **10⁹×** компрессии vs FedAvg. Тот же порядок, что у FedKSeed — но добавляет peer-to-peer топологию, доказательство сходимости с моментом и DP-гарантию.
+D-MeZO-N достигает **≈ 5×10⁸×** компрессии vs FedAvg (8 GB / 16 bytes = 5×10⁸). Тот же порядок, что у FedKSeed — но добавляет peer-to-peer топологию, доказательство сходимости с моментом и DP-гарантию.
 
 **Head-to-head vs FedKSeed** (Qwen3.5-4B-Base / MathLogicQA / 3 seeds / 500 rounds / 4 clients): D-MeZO-N v2 beats FedKSeed on loss 3/3 seeds (1.334 ± 0.014 vs 1.466 ± 0.023); D-MeZO-N v2 also beats vanilla MeZO on loss 3/3 seeds (vanilla 1.463 ± 0.023). Accuracy CIs include 0 at n=3 — not significant. Caveat: FedKSeed run at its default K=4096 hyperparameters without parity-tuned lr×β grid search. See `head-to-head/summary.txt`.
 

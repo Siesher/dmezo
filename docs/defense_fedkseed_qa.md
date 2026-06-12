@@ -40,7 +40,7 @@
 
 > "Из теории + наших уже имеющихся данных мы predict (см. `docs/fedkseed_comparison.md`):
 > 
-> 1. На **convergent tasks** (MathLogicQA): vanilla MeZO даёт final loss 1.359 / acc 0.370 на 2 seeds. FedKSeed (no momentum, no clip, shared z) **алгоритмически близок к vanilla** в этом regime — оба должны давать loss ~1.35–1.40. D-MeZO-N v2 = combo (B1 adaptive_clip + B5 drift-reset) **уже эмпирически побеждает vanilla** по обеим метрикам: loss 1.287 (Δ=−5.3%), acc 0.405 (Δ=+3.5pp), 2/2 seeds same direction. Логически D-MeZO-N v2 должен также побеждать FedKSeed на этой задаче с similar margin.
+> 1. На **convergent tasks** (MathLogicQA): vanilla MeZO даёт final loss 1.368 / acc 0.377 (3 seeds finalized). FedKSeed (no momentum, no clip, shared z) **алгоритмически близок к vanilla** в этом regime — оба должны давать loss ~1.35–1.40. D-MeZO-N v2 = combo (B1 adaptive_clip + B5 drift-reset) **уже эмпирически побеждает vanilla**: combo loss 1.293 (Δ = −5.5%, 3/3 same direction), acc +2.3pp mean (n.s., transparency-only). Логически D-MeZO-N v2 должен также побеждать FedKSeed на этой задаче с similar margin.
 > 
 > 2. На **rescue regime** (HellaSwag, vanilla diverges): FedKSeed **должен также diverge**, потому что у него нет ρ-clip и нет momentum (т.е. нет двух механизмов, которые в D-MeZO-N rescue traject). У D-MeZO-N — rescue (single-seed +3.75pp, multi-seed pending).
 > 
@@ -77,7 +77,7 @@
 ## Backup numbers (если попросят конкретику)
 
 **FedKSeed paper-claim (Qin 2024):**
-- LLaMA-3B / SuperGLUE: communication 18 KB/round (K=4096 seeds + scalars)
+- LLaMA-3B / SuperGLUE: communication < 18 KB/round (их reported value: seed pool статичен, per-round передаются только K=4096 скаляров float32 ≈ 16 KB + overhead)
 - Tested на full-attention transformers
 - No DP, no momentum, star topology
 
@@ -88,7 +88,7 @@
 
 **Compression ratio в bytes/round/sender:**
 - FedAvg: ~8 GB (4B params × 2 bytes bf16)
-- FedKSeed: 18 KB / 8 senders = ~2.3 KB/sender
+- FedKSeed: < 18 KB/sender (K=4096 скаляров float32; seed pool передаётся один раз)
 - **D-MeZO-N: 16 bytes/sender**
 
 Если кто-то спросит "vs FedKSeed" — D-MeZO-N **в 100× меньше** на bytes/round/sender. Но это не главный аргумент — главный это decentralization + DP + momentum.

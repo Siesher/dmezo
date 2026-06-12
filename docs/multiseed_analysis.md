@@ -151,6 +151,8 @@ This is **consistent** with the empirical 7% loss gap.
 
 ## §22.1 Aggregate table
 
+Throughout, ± denotes the population standard deviation (ddof = 0) over n = 3 seeds; sample std (ddof = 1) is ≈22% larger and does not change any direction-of-effect statement.
+
 | Variant | Mean loss ± std | Mean acc ± std | Total resets | Δ loss vs vanilla | Direction (3 seeds) |
 |---|---|---|---|---|---|
 | vanilla MeZO | **1.3681 ± 0.0182** | **0.3767 ± 0.0125** | 0 | reference | — |
@@ -158,6 +160,8 @@ This is **consistent** with the empirical 7% loss gap.
 | Drift-only (B5 alone) | 1.4559 ± 0.0035 | 0.3767 ± 0.0125 | 53 | **+6.4% worse** | 3/3 worse |
 | Adaptive_clip (B1 alone) | 1.2987 ± 0.0209 | 0.3900 ± 0.0432 | 0 | **−5.1%** | 3/3 wins loss |
 | **D-MeZO-N v2 = combo (B1+B5)** ⭐ | **1.2926 ± 0.0102** | **0.4000 ± 0.0294** | **54** | **−5.5%** | **3/3 wins loss** |
+
+**Note on identical per-seed accuracies (vanilla / v1 / drift-only):** All three of these variants produce identical per-seed final accuracies ({0.38, 0.36, 0.39} for all three). This is a small-eval-pool effect (100-example pool, SE ≈ 4.5 pp): the variants share the same predicted labels at R=1000; loss differs only in confidence margin. This is worth disclosing — it is not a data error.
 
 ## §22.2 Per-seed combo vs vanilla (paired)
 
@@ -187,7 +191,7 @@ B1 alone (adaptive clip) **3/3 wins loss** (Δ = −5.1%) — robust loss improv
 D-MeZO-N v2 = combo (B1 + B5) **robustly wins** vanilla on:
 - **Loss**: 3/3 same direction (Δ = −5.5% mean, never positive)
 - **Accuracy**: mean +2.3pp, per-seed (−1pp, +8pp, 0pp) — never substantively negative
-- **Lowest std loss across семейства методов с моментом** (0.010 vs B1 alone 0.021 vs vanilla 0.018) — additional **stability** evidence
+- **Lowest std loss among the variants that improve on vanilla** (combo 0.010 vs adaptive-clip-alone 0.021; vanilla itself 0.018). Note: drift-only has the smallest overall std (0.0035) but is uniformly stuck at a worse loss (+6.4%), so its tiny std reflects uniform failure, not stability of a good solution. Among variants that actually beat vanilla, combo is the most stable.
 
 Это **первое paper-scale multi-seed validated empirical improvement D-MeZO-N over vanilla MeZO**.
 
