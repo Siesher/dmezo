@@ -1,6 +1,6 @@
 ---
 title: "D-MeZO-N: Децентрализованный федеративный MeZO с ускорением Нестерова"
-author: "Максим Сухацкий — МГТУ им. Н.Э. Баумана (Калужский филиал) — rmnfn1992@outlook.com — github.com/Siesher/dmezo"
+author: "Максим Сухацкий — МГТУ им. Н.Э. Баумана (Калужский филиал) — loxtrepoi@gmail.com — github.com/Siesher/dmezo"
 date: "Весна 2026"
 lang: ru
 ---

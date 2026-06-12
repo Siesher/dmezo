@@ -1,6 +1,6 @@
 # D-MeZO-N: Decentralized Federated MeZO с Nesterov-ускорением
 
-**Автор:** Максим Сухацкий, МГТУ им. Н.Э. Баумана (Калужский филиал) · `rmnfn1992@outlook.com` · `github.com/Siesher/dmezo`
+**Автор:** Максим Сухацкий, МГТУ им. Н.Э. Баумана (Калужский филиал) · `loxtrepoi@gmail.com` · `github.com/Siesher/dmezo`
 
 **Status (2026-05-18):** Closure complete. Спека формально выполнена: empirical 11/11, mathematical 10/10. **Theorem 1** (convex), **Theorem 2** (PL без момента), **Theorem 3** (PL + heavy-ball + ρ-clip + β-decay) — все три доказаны (`docs/04-theory.md`, `docs/theory_nesterov_mezo.md`). **Cross-domain validation closed:** D-MeZO-N v1 (β-decay 0.9→0 + ρ-clip=50) валидирован на **4 задачах × 2 архитектурах × 2 языках**:
 

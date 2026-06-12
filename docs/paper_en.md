@@ -1,6 +1,6 @@
 ---
 title: "D-MeZO-N: Decentralized Federated MeZO with Nesterov-Style Stabilization"
-author: "Maxim Sukhatsky — Bauman MSTU (Kaluga branch) — rmnfn1992@outlook.com — github.com/Siesher/dmezo"
+author: "Maxim Sukhatsky — Bauman MSTU (Kaluga branch) — loxtrepoi@gmail.com — github.com/Siesher/dmezo"
 date: "Spring 2026"
 lang: en
 ---
