@@ -85,8 +85,31 @@ def main() -> None:
         ],
         check=True,
     )
+    _set_pdf_metadata()
     size_kb = PDF.stat().st_size / 1024
     print(f"[build] done: {PDF}  ({size_kb:,.0f} KB)")
+
+
+def _set_pdf_metadata() -> None:
+    """Stamp author/title into the PDF info dict (arXiv indexers read it)."""
+    try:
+        import pypdf
+    except ImportError:
+        print("[build] pypdf not installed — skipping PDF metadata stamp")
+        return
+    reader = pypdf.PdfReader(str(PDF))
+    writer = pypdf.PdfWriter()
+    writer.append(reader)
+    writer.add_metadata(
+        {
+            "/Author": "Maxim Sukhatsky",
+            "/Title": "D-MeZO-N: Decentralized Federated MeZO with Nesterov-Style Stabilization",
+            "/Subject": "Decentralized federated zeroth-order optimization for LLM fine-tuning",
+        }
+    )
+    with PDF.open("wb") as fh:
+        writer.write(fh)
+    print("[build] PDF metadata stamped (Author/Title/Subject)")
 
 
 if __name__ == "__main__":

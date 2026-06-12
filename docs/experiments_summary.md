@@ -15,7 +15,7 @@
 | Day 6b | 2026-05-15 | §5.4 | Qwen3.5-4B-Base | SST-2 | True look-ahead Nesterov | 🟢 | Look-ahead diverges 7× faster (NaN at R20) |
 | Day 8 R1 | 2026-05-15 | §5.4 | Qwen3.5-4B-Base | SST-2 | clip200, single seed | 🟡 | R100 acc=92.5% momentum-accel; slow drift to R500 divergence |
 | Day 8 R1b | 2026-05-15 | §5.4 | Qwen3.5-4B-Base | SST-2 | clip50 + const β=0.9 | 🟡 | best 0.119@R300 (3× speedup) + late drift to 0.225 |
-| **Day 8 R1d** | 2026-05-15 | §5.4 | Qwen3.5-4B-Base | SST-2 | **D-MeZO-N v1**: β-decay 0.9→0 + clip50 | 🟡 | monotonic descent to 0.1291; beats vanilla 0.1381 by 6.5% |
+| **Day 8 R1d** | 2026-05-15 | §5.4 | Qwen3.5-4B-Base | SST-2 | **D-MeZO-N v1**: β-decay 0.9→0 + clip50 | 🟡 | monotonic descent to 0.1291; beats vanilla control 0.1373 by 6.0% (final eval_loss контрольного рана Day 5 ring+Dir s42 из log.jsonl; ранее ошибочно цитировалось 0.1381/6.5%) |
 | HellaSwag | 2026-05-18 | **§5.5** | **Qwen3-4B** | HellaSwag | D-MeZO-N v1, 1000 rounds, 4 clients | 🟡 | vanilla **diverges** (−2.5pp acc), D-MeZO-N **+3.75pp**; single seed |
 | MathLogicQA | 2026-05-18 | §5.6 | Qwen3.5-4B-Base | MathLogicQA (Russian) | D-MeZO-N v1, 4 clients | 🟡 | safe-tracking +1.25pp acc; cross-lingual + cross-reasoning generality |
 | K=3 ablation | 2026-05-18 | §6.5 | Qwen3.5-4B-Base | SST-2 worst cell | MD-D-MeZO-N K=3 vs K=1 | 🟢 | K=3 loss WORSE +41.6%, acc BETTER +1.25pp; Pareto trade-off |

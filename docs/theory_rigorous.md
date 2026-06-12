@@ -346,7 +346,7 @@ $n$ клиентов, mixing $W$ с $\rho_W < 1$. Каждый $L_i$ convex и $
 При $\eta \le \min(1/(\ell r(H)),\, \sqrt{n/T})$ и $C \ge 2\|\nabla L\|_{\max} + \epsilon\ell\sqrt{r(H)}$:
 
 > **Замечание о допустимом шаге.** Оптимальный шаг $\eta^* = \sqrt{D_0 n / (C^2 r(H) \ell T)} \sim \sqrt{n/T}$ и для $n > 1$ превышает $1/\sqrt{T}$; замена верхней границы на $\sqrt{n/T}$ обеспечивает допустимость $\eta^*$.
-$$\boxed{\quad \mathbb{E}[L(\hat\theta_T) - L^\star] \le \tilde O\!\left(\sqrt{\frac{\ell r(H) D_0}{n T}}\right) + \tilde O\!\left(\frac{\rho_W^2 C^2 r(H)}{(1-\bar\beta)^2 T}\right) + O(\epsilon^2 \ell^2 r(H)) \quad}$$
+$$\boxed{\quad \mathbb{E}[L(\hat\theta_T) - L^\star] \le \tilde O\!\left(\sqrt{\frac{\ell r(H) D_0}{n T}}\right) + \tilde O\!\left(\frac{\rho_W^2 C^2 r(H)}{(1-\rho_W)^2 (1-\bar\beta)^2 T}\right) + O(\epsilon^2 \ell^2 r(H)) \quad}$$
 
 где $D_0 = \|\bar\theta_0 - \theta^\star\|^2$, $\bar\beta = \beta_0/2$.
 
@@ -399,7 +399,7 @@ $$\frac{D_0}{2\eta T} + \frac{\eta C^2 r(H)\ell}{2n} \ge \sqrt{\frac{D_0 \cdot C
 | P4 | $\rho$-clip + const $\beta$ → late drift | T3 corollary: $\|v_\infty\|^2 \approx 5G^2$ | R1b 0.119 → 0.225 drift | ✓ direction; magnitude — handwave |
 | P5 | $\beta$-decay убирает drift | T3 corollary: $\|v_T\|^2 \to G^2$ | R1d monotonic | ✓ qualitative |
 | P6 | Линейная сходимость $(1-\eta\mu)^T$ | T2/T3 main rate | Ring+IID 3.56 → 0.126 | ✓ qualitative; $\mu$ не calibrated |
-| P7 | Consensus penalty $\rho_W^2/(1-\rho_W)^2$ | T1: factor 0.25 для ring(4) | complete ≈ ring (<7% diff) | ✓ (penalty dominated by stochastic) |
+| P7 | Consensus penalty $\rho_W^2/(1-\rho_W)^2$ | T1: factor 0.25 для ring(4) | complete ≈ ring (<8% diff, max 7.5% на Dir-партиции) | ✓ (penalty dominated by stochastic) |
 | P8 | ZO bias $O(\epsilon^2)$ | Lemma 1a | $\epsilon=10^{-3} \Rightarrow$ pred bias $<10^{-6}$ | ✓ trivially |
 
 **Главные caveat'ы:**
