@@ -80,7 +80,7 @@ A fixed threshold $C = 50$ (v1 recipe) was selected empirically on the SST-2 abl
 - **(C2)** Bounded gradient diversity: $\tfrac{1}{n}\sum_i \|\nabla L_i(\theta) - \nabla L(\theta)\|^2 \leq \zeta^2$.
 - **(C3)** Bounded stochastic noise: $\mathbb{E}_\xi \|\nabla \ell(\theta;\xi) - \nabla L_i(\theta)\|^2 \leq \sigma_b^2$.
 - **(C5)** Effective Hessian rank: $r(H) := \mathrm{tr}(H) / \|H\|_{op} \ll d$.
-- **(A2 / PL, used in Theorem 2 only):** $\|\nabla L(\theta)\|^2 \geq 2\mu (L(\theta) - L^\star) \quad \forall \theta \in \mathbb{R}^d.$
+- **(A2 / PL, used in Theorems 2 and 3):** $\|\nabla L(\theta)\|^2 \geq 2\mu (L(\theta) - L^\star) \quad \forall \theta \in \mathbb{R}^d.$
 
 ## 4.2 Lemmas
 
