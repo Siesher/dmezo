@@ -226,7 +226,7 @@ $$
 
 ## 5.1 Постановка
 
-**Hardware.** Google Colab Pro+ с RTX PRO 6000 Blackwell (96 GB). Всё обучение в bfloat16. Один федеративный run на $n=4$ клиентах × 1000 раундов на Qwen3.5-4B-Base занимает приблизительно 25–40 мин wall-clock в зависимости от длины контекста (SST-2 vs BoolQ/HellaSwag) и наличия `flash-linear-attention` fast path. Локальные ablations на меньших моделях (Qwen3-0.6B / 1.7B / Qwen3.5-0.8B) выполнены на RTX 5070 Ti Blackwell (17 GB).
+**Hardware.** Google Colab Pro+ с RTX PRO 6000 Blackwell (96 GB). Всё обучение в bfloat16. Один федеративный run на $n=4$ клиентах × 1000 раундов на Qwen3.5-4B-Base занимает приблизительно 25–40 мин wall-clock в зависимости от длины контекста (SST-2 vs BoolQ/HellaSwag) и наличия `flash-linear-attention` fast path. Локальные ablations на меньших моделях (Qwen3-0.6B / 1.7B / Qwen3.5-0.8B) выполнены на RTX 5070 Ti Blackwell (16 GB).
 
 **Модели.** Qwen3-4B (стандартный трансформер с full attention; ~8 GB FP16) для Day 4 baseline; Qwen3.5-4B-Base (гибридная linear/full-attention V-L модель; 24-слойный ViT заморожен через loader модели, MeZO возмущает только 426 trainable групп параметров text decoder) для всех последующих экспериментов.
 

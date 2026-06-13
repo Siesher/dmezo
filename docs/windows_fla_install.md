@@ -10,7 +10,7 @@
 Python:    3.13.11
 Platform:  Windows 11
 PyTorch:   2.12.0+cu130
-GPU:       NVIDIA RTX 5070 Ti (Blackwell sm_120, 17 GB VRAM)
+GPU:       NVIDIA RTX 5070 Ti (Blackwell sm_120, 16 GB VRAM)
 BF16:      supported
 ```
 
